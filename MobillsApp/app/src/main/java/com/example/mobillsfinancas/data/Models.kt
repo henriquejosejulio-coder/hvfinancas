@@ -64,7 +64,8 @@ data class TransactionItem(
     val currentInstallment: Int = 1,
     val totalInstallments: Int = 1,
     val note: String = "",
-    val includeInBudget: Boolean = true
+    val includeInBudget: Boolean = true,
+    val isSalaryReplacement: Boolean = false
 )
 
 enum class CardType(val label: String, val icon: String, val badgeText: String) {
@@ -108,15 +109,15 @@ data class AccountItem(
     val includeInOverallBalance: Boolean = true, // false para Cofrinhos, Reservas e Investimentos (não somam no saldo livre)
     val cdiRatePercentage: Double = 0.0 // Ex: 115.0 para 115% do CDI (Mercado Pago), 100.0 para 100% do CDI
 ) {
-    fun calculateMonthlyYield(annualCdiRate: Double = 10.65): Double {
+    fun calculateMonthlyYield(annualCdiRate: Double = 10.65, businessDaysCount: Int = 21): Double {
         if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
         val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
-        val monthlyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 12.0) - 1.0
-        return balance * monthlyRate
+        val dailyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 252.0) - 1.0
+        return balance * (Math.pow(1.0 + dailyRate, businessDaysCount.toDouble()) - 1.0)
     }
 
-    fun calculateDailyYield(annualCdiRate: Double = 10.65): Double {
-        if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
+    fun calculateDailyYield(annualCdiRate: Double = 10.65, isBusinessDay: Boolean = true): Double {
+        if (balance <= 0 || cdiRatePercentage <= 0 || !isBusinessDay) return 0.0
         val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
         val dailyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 252.0) - 1.0
         return balance * dailyRate

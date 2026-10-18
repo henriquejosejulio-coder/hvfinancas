@@ -178,11 +178,15 @@ fun MainScreen(
                                     )
                                 }
                             }
-                            val totalBalance = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
-                            val pendingCofrinhoTransfers = currentMonthData?.items?.filter {
-                                it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
-                            }?.sumOf { it.amount } ?: 0.0
-                            val effectiveTotalBalance = (totalBalance - pendingCofrinhoTransfers).coerceAtLeast(0.0)
+                            val totalBalance = remember(accounts) { accounts.filter { it.includeInOverallBalance }.sumOf { it.balance } }
+                            val pendingCofrinhoTransfers = remember(currentMonthData?.items) {
+                                currentMonthData?.items?.filter {
+                                    it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
+                                }?.sumOf { it.amount } ?: 0.0
+                            }
+                            val effectiveTotalBalance = remember(totalBalance, pendingCofrinhoTransfers) {
+                                (totalBalance - pendingCofrinhoTransfers).coerceAtLeast(0.0)
+                            }
                             Text(
                                 text = "Saldo: ${Formatters.formatMoney(effectiveTotalBalance, viewModel.hideValues)}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -314,6 +318,9 @@ fun MainScreen(
                     },
                     onRequestNotificationPermission = {
                         showNotificationHelpDialog = true
+                    },
+                    onNavigateToExtrato = {
+                        selectedTab = 1
                     }
                 )
                 1 -> TransactionsTab(
@@ -1166,12 +1173,30 @@ fun DashboardTab(
     onDismissAllQuickInstallments: () -> Unit = {},
     categories: List<com.example.mobillsfinancas.data.CategoryItem> = emptyList(),
     onSetBudgetLimit: (String, Double, Boolean) -> Unit = { _, _, _ -> },
-    onRequestNotificationPermission: () -> Unit
+    onRequestNotificationPermission: () -> Unit,
+    onNavigateToExtrato: () -> Unit = {}
 ) {
     val items = currentMonthData?.items ?: emptyList()
     val totalExp = currentMonthData?.totalExpense ?: 0.0
     val totalInc = currentMonthData?.totalIncome ?: 3500.0
     val remaining = currentMonthData?.remainingBalance ?: 0.0
+
+    val recentItems = remember(items) { items.take(4) }
+
+    val unspentBudgets = remember(categories, currentMonthData?.items) {
+        categories.filter { it.budgetLimit > 0 && it.reserveInBudget }.sumOf { cat ->
+            val spentInCat = (currentMonthData?.items ?: emptyList()).filter { 
+                it.type == TransactionType.EXPENSE && it.includeInBudget && it.category.equals(cat.name, ignoreCase = true)
+            }.sumOf { it.amount }
+            maxOf(0.0, cat.budgetLimit - spentInCat)
+        }
+    }
+
+    val pendingCofrinhoTransfers = remember(currentMonthData?.items) {
+        currentMonthData?.items?.filter {
+            it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
+        }?.sumOf { it.amount } ?: 0.0
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1273,13 +1298,6 @@ fun DashboardTab(
         }
 
         item {
-            val unspentBudgets = categories.filter { it.budgetLimit > 0 && it.reserveInBudget }.sumOf { cat ->
-                val spentInCat = (currentMonthData?.items ?: emptyList()).filter { 
-                    it.type == TransactionType.EXPENSE && it.includeInBudget && it.category.equals(cat.name, ignoreCase = true)
-                }.sumOf { it.amount }
-                maxOf(0.0, cat.budgetLimit - spentInCat)
-            }
-
             OverviewCard(
                 totalIncome = totalInc,
                 totalExpense = totalExp,
@@ -1295,10 +1313,6 @@ fun DashboardTab(
 
         // Seção Bancos & Contas (Controle de Saldo estilo Mobills)
         item {
-            val pendingCofrinhoTransfers = currentMonthData?.items?.filter {
-                it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
-            }?.sumOf { it.amount } ?: 0.0
-
             AccountsSection(
                 accounts = accounts,
                 hideValues = hideValues,
@@ -1336,6 +1350,7 @@ fun DashboardTab(
             )
         }
 
+        // Seção Enxuta de Últimos Lançamentos na Home (Sem duplicidade com a aba Extrato)
         item {
             Row(
                 modifier = Modifier
@@ -1345,14 +1360,27 @@ fun DashboardTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Lançamentos de $selectedMonth (${items.size})",
+                    text = if (items.isNotEmpty()) "Últimos Lançamentos (${minOf(4, items.size)} de ${items.size})" else "Lançamentos de $selectedMonth",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
+                if (items.isNotEmpty()) {
+                    TextButton(
+                        onClick = onNavigateToExtrato,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Ver Extrato ➔",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MobillsGreenPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
 
-        items(items, key = { "${it.id}_${it.accountOrCardName}_${it.amount}_${it.status}_${it.date}" }) { item ->
+        items(recentItems, key = { "${it.id}_${it.accountOrCardName}_${it.amount}_${it.status}_${it.date}" }) { item ->
             TransactionItemView(
                 item = item,
                 hideValues = hideValues,
@@ -1360,6 +1388,44 @@ fun DashboardTab(
                 onToggleStatus = onToggleStatus,
                 onDelete = onDeleteTransaction
             )
+        }
+
+        if (items.size > 4) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    OutlinedButton(
+                        onClick = onNavigateToExtrato,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "Ver todos os ${items.size} lançamentos no Extrato ➔",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MobillsGreenPrimary
+                        )
+                    }
+                }
+            }
+        } else if (items.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Nenhum lançamento em $selectedMonth",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 }

@@ -119,6 +119,16 @@ fun MobillsTransactionSheet(
     var updateFutureInstallments by remember { mutableStateOf(if (existingItem != null) false else true) }
     var note by remember { mutableStateOf(existingItem?.note ?: "") }
     var includeInBudget by remember { mutableStateOf(existingItem?.includeInBudget ?: true) }
+    var isSalaryReplacement by remember { mutableStateOf(existingItem?.isSalaryReplacement ?: false) }
+    var targetInvoiceMonth by remember {
+        val initialMonth = if (!existingItem?.monthYear.isNullOrBlank()) {
+            existingItem!!.monthYear
+        } else {
+            val card = cards.find { it.name.equals(selectedAccountOrCard, ignoreCase = true) }
+            MonthHelper.getTargetInvoiceMonth(dateText, card?.closingDay ?: 6) ?: currentMonth
+        }
+        mutableStateOf(initialMonth)
+    }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
@@ -558,6 +568,13 @@ fun MobillsTransactionSheet(
                                 val d = if (parts.size == 3) (parts[0].toIntOrNull() ?: cal.get(Calendar.DAY_OF_MONTH)).coerceIn(1, 31) else cal.get(Calendar.DAY_OF_MONTH)
                                 DatePickerDialog(sheetContext, { _, year, month, dayOfMonth ->
                                     dateText = String.format(Locale.getDefault(), "%02d/%02d/%04d", dayOfMonth, month + 1, year)
+                                    if (selectedPaymentType == PaymentType.CREDIT_CARD && existingItem == null) {
+                                        val card = cards.find { it.name.equals(selectedAccountOrCard, ignoreCase = true) }
+                                        val suggested = MonthHelper.getTargetInvoiceMonth(dateText, card?.closingDay ?: 6)
+                                        if (suggested != null) {
+                                            targetInvoiceMonth = suggested
+                                        }
+                                    }
                                 }, y, m, d).show()
                             },
                         shape = RoundedCornerShape(12.dp),
@@ -574,7 +591,11 @@ fun MobillsTransactionSheet(
                                 Text("📅", fontSize = 20.sp)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
-                                    Text("Data do Lançamento", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = if (selectedPaymentType == PaymentType.CREDIT_CARD) "Data da Compra no Cartão" else "Data do Lançamento",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                     Text(
                                         text = dateText.ifBlank { "Selecionar data" },
                                         fontSize = 15.sp,
@@ -595,6 +616,116 @@ fun MobillsTransactionSheet(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
                             }
+                        }
+                    }
+
+                    if (selectedPaymentType == PaymentType.CREDIT_CARD) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val selectedCardObj = cards.find { it.name.equals(selectedAccountOrCard, ignoreCase = true) }
+                        val closingDay = selectedCardObj?.closingDay ?: 6
+                        val dueDay = selectedCardObj?.dueDay ?: 15
+                        var showInvoicePicker by remember { mutableStateOf(false) }
+
+                        OutlinedCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showInvoicePicker = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                            border = BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("💳", fontSize = 20.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Fatura de Cobrança / Mês de Pagamento", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            text = targetInvoiceMonth,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0284C7)
+                                        )
+                                        Text(
+                                            text = "Fecha dia $closingDay • Vence dia $dueDay",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Mudar Fatura 🗓️",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0284C7),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (showInvoicePicker) {
+                            AlertDialog(
+                                onDismissRequest = { showInvoicePicker = false },
+                                title = { Text("Selecionar Fatura de Cobrança") },
+                                text = {
+                                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                        val candidateMonths = MonthHelper.sortMonths(
+                                            (listOf(
+                                                currentMonth,
+                                                MonthHelper.addMonths(currentMonth, -1),
+                                                MonthHelper.addMonths(currentMonth, 1),
+                                                MonthHelper.addMonths(currentMonth, 2),
+                                                MonthHelper.addMonths(currentMonth, 3)
+                                            ) + (MonthHelper.getMonthYearFromDate(dateText)?.let { listOf(it, MonthHelper.addMonths(it, 1)) } ?: emptyList())).distinct()
+                                        )
+                                        candidateMonths.forEach { mKey ->
+                                            val isSel = mKey.equals(targetInvoiceMonth, ignoreCase = true)
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSel) Color(0xFF0284C7).copy(alpha = 0.2f) else Color.Transparent,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        targetInvoiceMonth = mKey
+                                                        showInvoicePicker = false
+                                                    }
+                                                    .padding(vertical = 4.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = mKey,
+                                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (isSel) Color(0xFF0284C7) else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    if (isSel) {
+                                                        Text("✓", color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { showInvoicePicker = false }) {
+                                        Text("Fechar")
+                                    }
+                                }
+                            )
                         }
                     }
 
@@ -1026,6 +1157,74 @@ fun MobillsTransactionSheet(
                         }
                     }
 
+                    if (type == TransactionType.INCOME) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, if (isSalaryReplacement) IncomeGreen.copy(alpha = 0.5f) else Color.Transparent),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { isSalaryReplacement = !isSalaryReplacement }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Text("💼", fontSize = 18.sp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "É o Salário do Mês",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (isSalaryReplacement) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = IncomeGreen.copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        text = "SUBSTITUI MÉDIA",
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = IncomeGreen
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = if (isSalaryReplacement)
+                                                "Substitui a média prevista de R$ 3.300 pelo valor real recebido (não duplica no total)"
+                                            else
+                                                "Receita extra avulsa (soma além do salário base)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontSize = 11.sp,
+                                            color = if (isSalaryReplacement) IncomeGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = isSalaryReplacement,
+                                    onCheckedChange = { isSalaryReplacement = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = IncomeGreen,
+                                        checkedTrackColor = IncomeGreen.copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
                     // Opção de propagação de alterações para Lançamentos Fixos ou Parcelados existentes
                     if (existingItem != null && (isRecurring || existingItem.isRecurring || existingItem.installmentGroupId.isNotBlank() || totalInstallmentsCount > 1)) {
                         Spacer(modifier = Modifier.height(10.dp))
@@ -1385,7 +1584,11 @@ fun MobillsTransactionSheet(
                                         "$cleanDesc ($startInstallment/$totalInstallmentsCount)"
                                     } else cleanDesc
 
-                                    val targetMonth = MonthHelper.getMonthYearFromDate(dateText) ?: currentMonth
+                                    val targetMonth = if (selectedPaymentType == PaymentType.CREDIT_CARD) {
+                                        targetInvoiceMonth
+                                    } else {
+                                        MonthHelper.getMonthYearFromDate(dateText) ?: currentMonth
+                                    }
                                     val itemToSave = if (existingItem != null) {
                                         existingItem.copy(
                                             description = finalDesc,
@@ -1404,7 +1607,8 @@ fun MobillsTransactionSheet(
                                             currentInstallment = if (isRecurring) 1 else startInstallment,
                                             totalInstallments = if (isRecurring) 1 else totalInstallmentsCount,
                                             note = note,
-                                            includeInBudget = includeInBudget
+                                            includeInBudget = includeInBudget,
+                                            isSalaryReplacement = isSalaryReplacement
                                         )
                                     } else {
                                         TransactionItem(
@@ -1424,7 +1628,8 @@ fun MobillsTransactionSheet(
                                             currentInstallment = if (isRecurring) 1 else startInstallment,
                                             totalInstallments = if (isRecurring) 1 else totalInstallmentsCount,
                                             note = note,
-                                            includeInBudget = includeInBudget
+                                            includeInBudget = includeInBudget,
+                                            isSalaryReplacement = isSalaryReplacement
                                         )
                                     }
 

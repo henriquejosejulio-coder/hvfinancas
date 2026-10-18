@@ -22,6 +22,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
 import com.example.mobillsfinancas.utils.BankRegistry
+import com.example.mobillsfinancas.utils.MonthHelper
 import com.example.mobillsfinancas.utils.SupportedBank
 
 class BankNotificationService : NotificationListenerService() {
@@ -330,20 +331,55 @@ class BankNotificationService : NotificationListenerService() {
 
         // 4. Identifica o estabelecimento ou beneficiário
         val storeName = extractStoreOrBeneficiary(fullContent)
-        val category = if (isIncome) "Salário / Receita" else inferCategory(storeName, paymentMethod)
+        val isVacationOr13th = isIncome && (
+            fullContent.contains("férias", ignoreCase = true) ||
+            fullContent.contains("ferias", ignoreCase = true) ||
+            fullContent.contains("13º", ignoreCase = true) ||
+            fullContent.contains("13o", ignoreCase = true) ||
+            fullContent.contains("décimo terceiro", ignoreCase = true) ||
+            fullContent.contains("decimo terceiro", ignoreCase = true)
+        )
+        val isSalary = isIncome && !isVacationOr13th && (
+            fullContent.contains("salário", ignoreCase = true) ||
+            fullContent.contains("salario", ignoreCase = true) ||
+            fullContent.contains("folha de pagamento", ignoreCase = true) ||
+            fullContent.contains("pro labore", ignoreCase = true) ||
+            fullContent.contains("remuneração", ignoreCase = true) ||
+            fullContent.contains("remuneracao", ignoreCase = true)
+        )
+        val category = if (isVacationOr13th) "Benefícios / Férias / 13º"
+                       else if (isSalary) "Salário"
+                       else if (isIncome) "Salário / Receita"
+                       else inferCategory(storeName, paymentMethod)
 
         val currentMonth = repository.selectedMonth.value.ifEmpty { "OUTUBRO 2026" }
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
         val today = dateFormat.format(Date())
 
+        val targetMonth = if (paymentType == PaymentType.CREDIT_CARD) {
+            val card = repository.cards.value.find { it.name.equals(paymentMethod, ignoreCase = true) }
+            if (card != null && card.closingDay > 0) {
+                MonthHelper.getTargetInvoiceMonth(today, card.closingDay) ?: currentMonth
+            } else currentMonth
+        } else {
+            currentMonth
+        }
+
         val description = if (storeName.isNotBlank()) {
             if (isIncome) {
-                if (storeName.contains("Depósito", ignoreCase = true) || storeName.contains("Pix", ignoreCase = true)) storeName else "Pix de $storeName"
+                if (isVacationOr13th) "Férias/13º: $storeName"
+                else if (isSalary) "Salário: $storeName"
+                else if (storeName.contains("Depósito", ignoreCase = true) || storeName.contains("Pix", ignoreCase = true)) storeName
+                else "Pix de $storeName"
             } else {
                 storeName
             }
         } else {
-            if (isIncome) "Pix Recebido" else (if (title.isNotBlank()) title else paymentMethod)
+            if (isIncome) {
+                if (isVacationOr13th) "Férias / 13º Recebido"
+                else if (isSalary) "Salário Recebido"
+                else "Pix Recebido"
+            } else (if (title.isNotBlank()) title else paymentMethod)
         }
 
         // 5. Leitor inteligente de parcelas (para compras parceladas)
@@ -396,11 +432,12 @@ class BankNotificationService : NotificationListenerService() {
             category = category,
             accountOrCardName = paymentMethod,
             paymentType = paymentType,
-            monthYear = currentMonth,
+            monthYear = targetMonth,
             date = today,
             status = if (isIncome || isDebito || isPix) PaymentStatus.PAID else PaymentStatus.PENDING,
             currentInstallment = currentInstallment,
-            totalInstallments = totalInstallments
+            totalInstallments = totalInstallments,
+            isSalaryReplacement = isSalary
         )
 
         // Adiciona a transação no repositório central

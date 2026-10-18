@@ -977,7 +977,18 @@ class FinanceRepository(private val context: Context) {
             java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
         } else item.date
 
-        val targetMonth = MonthHelper.getMonthYearFromDate(txDate) ?: item.monthYear.ifEmpty { _selectedMonth.value }
+        val targetMonth = if (item.paymentType == PaymentType.CREDIT_CARD && item.monthYear.isNotBlank()) {
+            item.monthYear
+        } else if (item.paymentType == PaymentType.CREDIT_CARD) {
+            val card = _cards.value.find { it.name.equals(item.accountOrCardName, ignoreCase = true) }
+            if (card != null && card.closingDay > 0) {
+                MonthHelper.getTargetInvoiceMonth(txDate, card.closingDay) ?: MonthHelper.getMonthYearFromDate(txDate) ?: item.monthYear.ifEmpty { _selectedMonth.value }
+            } else {
+                MonthHelper.getMonthYearFromDate(txDate) ?: item.monthYear.ifEmpty { _selectedMonth.value }
+            }
+        } else {
+            MonthHelper.getMonthYearFromDate(txDate) ?: item.monthYear.ifEmpty { _selectedMonth.value }
+        }
         val finalItem = item.copy(date = txDate, monthYear = targetMonth)
 
         if (finalItem.isRecurring) {
@@ -1162,7 +1173,11 @@ class FinanceRepository(private val context: Context) {
         previousMonthYear: String? = null,
         updateFutureInstallments: Boolean = false
     ) {
-        val targetMonth = MonthHelper.getMonthYearFromDate(updatedItem.date) ?: updatedItem.monthYear
+        val targetMonth = if (updatedItem.paymentType == PaymentType.CREDIT_CARD && updatedItem.monthYear.isNotBlank()) {
+            updatedItem.monthYear
+        } else {
+            MonthHelper.getMonthYearFromDate(updatedItem.date) ?: updatedItem.monthYear
+        }
         val finalItem = updatedItem.copy(monthYear = targetMonth)
         val oldMonth = previousMonthYear ?: updatedItem.monthYear
         val newMonth = targetMonth
@@ -1737,19 +1752,24 @@ class FinanceRepository(private val context: Context) {
                 isCascadingStarted = true
             }
 
+            val salaryItem = monthData.items.find { it.isSalaryReplacement && it.type == TransactionType.INCOME }
+            val effectiveBaseInc = if (salaryItem != null && salaryItem.amount > 0) salaryItem.amount else monthData.baseIncome
+
             var totalExp = 0.0
             var extraInc = 0.0
             for (item in monthData.items) {
                 if (item.type == TransactionType.EXPENSE) {
                     totalExp += item.amount
                 } else if (item.type == TransactionType.INCOME) {
-                    extraInc += item.amount
+                    if (!item.isSalaryReplacement) {
+                        extraInc += item.amount
+                    }
                 } else if (item.type == TransactionType.TRANSFER && item.includeInBudget) {
                     totalExp += item.amount
                 }
             }
 
-            val baseInc = monthData.baseIncome
+            val baseInc = effectiveBaseInc
             val currentInc = baseInc + extraInc
 
             val prevMonthKey = MonthHelper.addMonths(monthKey, -1)
@@ -1765,6 +1785,7 @@ class FinanceRepository(private val context: Context) {
                 remainingBalance = remaining,
                 previousMonthBalance = prevBal,
                 currentMonthIncome = currentInc,
+                baseIncome = effectiveBaseInc,
                 items = monthData.items.toList(),
                 lastModified = System.currentTimeMillis()
             )
@@ -2000,6 +2021,7 @@ class FinanceRepository(private val context: Context) {
                     iObj.put("totalInstallments", item.totalInstallments)
                     iObj.put("note", item.note)
                     iObj.put("includeInBudget", item.includeInBudget)
+                    iObj.put("isSalaryReplacement", item.isSalaryReplacement)
                     itemsArr.put(iObj)
                 }
                 mObj.put("itens", itemsArr)
@@ -2208,7 +2230,8 @@ class FinanceRepository(private val context: Context) {
                         currentInstallment = iObj.optInt("currentInstallment", 1),
                         totalInstallments = iObj.optInt("totalInstallments", 1),
                         note = iObj.optString("note", ""),
-                        includeInBudget = iObj.optBoolean("includeInBudget", true)
+                        includeInBudget = iObj.optBoolean("includeInBudget", true),
+                        isSalaryReplacement = iObj.optBoolean("isSalaryReplacement", false)
                     )
                 )
             }
