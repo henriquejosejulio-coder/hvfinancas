@@ -146,13 +146,39 @@ fun TransactionItemView(
                         PaymentType.CASH -> "💵 Dinheiro"
                         PaymentType.INVESTMENT -> "📈 Aplicação"
                     }
-                    Text(
-                        text = "${item.category} • ${item.accountOrCardName} ($payTypeText)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    val displayDate = if (item.date.isNotBlank()) {
+                        item.date.replace("Vencimento: ", "Venc: ").trim()
+                    } else {
+                        item.monthYear
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        if (displayDate.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                            ) {
+                                Text(
+                                    text = "📅 $displayDate",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(
+                            text = "${item.category} • ${item.accountOrCardName} ($payTypeText)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -274,8 +300,9 @@ fun TransactionItemView(
                             Spacer(modifier = Modifier.height(4.dp))
                             val prefix = if (item.type == TransactionType.INCOME) "+ " else "- "
                             val valueColor = if (item.type == TransactionType.INCOME) IncomeGreen else ExpenseRed
+                            val confirmDate = if (item.date.isNotBlank()) item.date.replace("Vencimento: ", "Venc: ").trim() else item.monthYear
                             Text(
-                                text = "$prefix${Formatters.formatMoney(item.amount, hideValues)} • ${item.category}",
+                                text = "$prefix${Formatters.formatMoney(item.amount, hideValues)} • ${item.category} • 📅 $confirmDate",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = valueColor,
                                 fontWeight = FontWeight.Bold

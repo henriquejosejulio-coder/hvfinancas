@@ -19,12 +19,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import com.example.mobillsfinancas.data.*
+import com.example.mobillsfinancas.theme.ExpenseRed
+import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.ui.components.*
 import com.example.mobillsfinancas.ui.screens.BankIntegrationScreen
@@ -433,7 +436,7 @@ fun MainScreen(
 
             // Diálogo de Pagamento de Fatura do Cartão
             if (payingCard != null) {
-                val invoice = viewModel.getCardInvoice(payingCard!!.name)
+                val invoice = viewModel.getCardInvoice(payingCard!!)
                 PayInvoiceDialog(
                     card = payingCard!!,
                     invoiceAmount = invoice,
@@ -451,6 +454,7 @@ fun MainScreen(
                 EditCardDialog(
                     card = editingCard,
                     accounts = accounts,
+                    existingCards = cards,
                     onDismiss = { editingCard = null },
                     onSave = { updated ->
                         viewModel.updateCard(updated)
@@ -468,6 +472,7 @@ fun MainScreen(
                 EditCardDialog(
                     card = null,
                     accounts = accounts,
+                    existingCards = cards,
                     onDismiss = { showAddCardDialog = false },
                     onSave = { newCard ->
                         viewModel.addCard(newCard)
@@ -1701,10 +1706,7 @@ fun CardsTab(
         }
 
         items(cards, key = { "${it.id}_$currentMonth" }) { card ->
-            val cardItems = items.filter {
-                it.type == com.example.mobillsfinancas.data.TransactionType.EXPENSE &&
-                (it.accountOrCardName.contains(card.name, ignoreCase = true) || it.description.contains(card.name, ignoreCase = true))
-            }
+            val cardItems = items.filter { isTransactionForCard(it, card, accounts) }
             val invoice = cardItems.sumOf { it.amount }
             val availableLimit = (card.limit - invoice).coerceAtLeast(0.0)
 
@@ -1717,12 +1719,13 @@ fun CardsTab(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    // Header do Cartão
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1731,7 +1734,9 @@ fun CardsTab(
                                     text = card.name,
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(card.colorHex)
+                                    color = Color(card.colorHex),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -1751,31 +1756,46 @@ fun CardsTab(
                                 Text(
                                     text = "🔗 Conta: ${linkedAcc.bankIcon} ${linkedAcc.name}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
                         if (card.cardType.allowsCredit) {
                             Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = Color(card.colorHex).copy(alpha = 0.15f)
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(card.colorHex).copy(alpha = 0.12f)
                             ) {
-                                Text(
-                                    text = "Fech: dia ${card.closingDay} • Venc: dia ${card.dueDay}",
+                                Column(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(card.colorHex)
-                                )
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    Text(
+                                        text = "Fech: dia ${card.closingDay}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(card.colorHex)
+                                    )
+                                    Text(
+                                        text = "Venc: dia ${card.dueDay}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(card.colorHex)
+                                    )
+                                }
                             }
                         } else {
                             Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = Color(card.colorHex).copy(alpha = 0.15f)
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(card.colorHex).copy(alpha = 0.12f)
                             ) {
                                 Text(
                                     text = "Débito em Conta",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(card.colorHex)
@@ -1784,11 +1804,13 @@ fun CardsTab(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
+                    // Linha com Fatura e Limite
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
                     ) {
                         Column {
                             Text(
@@ -1835,6 +1857,43 @@ fun CardsTab(
                         }
                     }
 
+                    // Barra de Consumo do Limite (quando cartão de crédito com limite > 0)
+                    if (card.cardType.allowsCredit && card.limit > 0) {
+                        val limitUsage = (invoice / card.limit).toFloat().coerceIn(0f, 1f)
+                        val usagePercent = ((invoice / card.limit) * 100).toInt()
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Consumo do limite: $usagePercent%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (usagePercent > 85) ExpenseRed else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (usagePercent > 85) {
+                                    Text(
+                                        text = "⚠️ Próximo ao limite",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ExpenseRed,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { limitUsage },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = if (usagePercent > 85) ExpenseRed else Color(card.colorHex),
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // Botões de Ação do Cartão (Estilo Mobills)
@@ -1862,17 +1921,35 @@ fun CardsTab(
                     if (cardItems.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(14.dp))
                         HorizontalDivider()
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Compras deste cartão em $currentMonth (${cardItems.size})",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Toque para editar",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Compras deste cartão em $currentMonth (${cardItems.size}) - toque para editar:",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
                         cardItems.forEach { item ->
+                            val cleanDesc = item.description.replace(Regex("\\s*\\(\\d+/\\d+\\)"), "").trim()
+                            val displayDate = if (item.date.isNotBlank()) {
+                                item.date.replace("Vencimento: ", "").replace("Venc: ", "").trim()
+                            } else {
+                                item.monthYear
+                            }
+
                             Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 3.dp)
@@ -1881,36 +1958,119 @@ fun CardsTab(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // Ícone + Descrição + Categoria/Data
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(item.categoryIcon, fontSize = 16.sp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text(item.description, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(item.categoryColorHex).copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(item.categoryIcon, fontSize = 16.sp)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = cleanDesc,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
                                                 if (item.totalInstallments > 1) {
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "(${item.currentInstallment}/${item.totalInstallments})",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MobillsGreenPrimary,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                                    ) {
+                                                        Text(
+                                                            text = "${item.currentInstallment}/${item.totalInstallments}",
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        )
+                                                    }
                                                 }
                                             }
-                                            Text("${item.category} • ${item.status.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (displayDate.isNotBlank()) {
+                                                    Text(
+                                                        text = "📅 $displayDate",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = " • ",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Text(
+                                                    text = item.category,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(Formatters.formatMoney(item.amount, hideValues), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("✏️", fontSize = 12.sp)
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Valor + Badge de Status em Português
+                                    Column(
+                                        horizontalAlignment = Alignment.End
+                                    ) {
+                                        Text(
+                                            text = Formatters.formatMoney(item.amount, hideValues),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (item.type == TransactionType.INCOME) IncomeGreen else ExpenseRed
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = when (item.status) {
+                                                PaymentStatus.PAID -> IncomeGreen.copy(alpha = 0.15f)
+                                                PaymentStatus.PENDING -> ExpenseRed.copy(alpha = 0.15f)
+                                                PaymentStatus.TO_RECEIVE -> Color(0xFF0288D1).copy(alpha = 0.15f)
+                                            }
+                                        ) {
+                                            Text(
+                                                text = when (item.status) {
+                                                    PaymentStatus.PAID -> "PAGO"
+                                                    PaymentStatus.PENDING -> "PENDENTE"
+                                                    PaymentStatus.TO_RECEIVE -> "A RECEBER"
+                                                },
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 9.sp,
+                                                color = when (item.status) {
+                                                    PaymentStatus.PAID -> IncomeGreen
+                                                    PaymentStatus.PENDING -> ExpenseRed
+                                                    PaymentStatus.TO_RECEIVE -> Color(0xFF0288D1)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }

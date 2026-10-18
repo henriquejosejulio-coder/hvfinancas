@@ -572,41 +572,45 @@ class FinanceRepository(private val context: Context) {
         includePreviousInstallments: Boolean = false,
         isAmountPerInstallment: Boolean = true
     ) {
-        if (item.isRecurring) {
-            addRecurringTransaction(item)
+        val finalItem = if (item.date.isBlank()) {
+            item.copy(date = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date()))
+        } else item
+
+        if (finalItem.isRecurring) {
+            addRecurringTransaction(finalItem)
             return
         }
 
-        if (item.totalInstallments > 1) {
+        if (finalItem.totalInstallments > 1) {
             addTransactionWithInstallments(
-                baseItem = item,
-                totalInstallments = item.totalInstallments,
-                startInstallment = item.currentInstallment,
+                baseItem = finalItem,
+                totalInstallments = finalItem.totalInstallments,
+                startInstallment = finalItem.currentInstallment,
                 isAmountPerInstallment = isAmountPerInstallment,
                 includePreviousInstallments = includePreviousInstallments
             )
             return
         }
 
-        val month = item.monthYear.ifEmpty { _selectedMonth.value }
+        val month = finalItem.monthYear.ifEmpty { _selectedMonth.value }
         val monthData = ensureMonthExists(month)
 
         // Se for despesa no débito/pix/dinheiro e já paga, debita da conta selecionada
-        if (item.type == TransactionType.EXPENSE &&
-            (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH) &&
-            item.status == PaymentStatus.PAID) {
-            val account = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+        if (finalItem.type == TransactionType.EXPENSE &&
+            (finalItem.paymentType == PaymentType.DEBIT_CARD || finalItem.paymentType == PaymentType.PIX || finalItem.paymentType == PaymentType.CASH) &&
+            finalItem.status == PaymentStatus.PAID) {
+            val account = findMatchingAccount(finalItem.accountOrCardName, fallbackToDefault = false)
             if (account != null) {
-                updateAccount(account.copy(balance = account.balance - item.amount))
+                updateAccount(account.copy(balance = account.balance - finalItem.amount))
             }
-        } else if (item.type == TransactionType.INCOME && item.status == PaymentStatus.PAID) {
-            val account = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+        } else if (finalItem.type == TransactionType.INCOME && finalItem.status == PaymentStatus.PAID) {
+            val account = findMatchingAccount(finalItem.accountOrCardName, fallbackToDefault = false)
             if (account != null) {
-                updateAccount(account.copy(balance = account.balance + item.amount))
+                updateAccount(account.copy(balance = account.balance + finalItem.amount))
             }
         }
 
-        val updatedItems = listOf(item) + monthData.items
+        val updatedItems = listOf(finalItem) + monthData.items
         _monthDataMap[month] = monthData.copy(
             items = updatedItems,
             lastModified = System.currentTimeMillis()
@@ -1116,9 +1120,15 @@ class FinanceRepository(private val context: Context) {
     fun payCardInvoice(cardName: String, monthYear: String, accountId: String, amountPaid: Double) {
         val monthData = _monthDataMap[monthYear] ?: return
         val account = _accounts.value.find { it.id == accountId } ?: getDefaultAccount() ?: _accounts.value.firstOrNull()
+        val card = _cards.value.find { it.name.equals(cardName, ignoreCase = true) }
 
         val updatedItems = monthData.items.map { item ->
-            if (item.accountOrCardName.equals(cardName, ignoreCase = true) && item.type == TransactionType.EXPENSE) {
+            val matches = if (card != null) {
+                isTransactionForCard(item, card, _accounts.value)
+            } else {
+                item.accountOrCardName.equals(cardName, ignoreCase = true) && item.type == TransactionType.EXPENSE && item.paymentType == PaymentType.CREDIT_CARD
+            }
+            if (matches) {
                 item.copy(status = PaymentStatus.PAID)
             } else item
         }.toMutableList()
@@ -1309,18 +1319,37 @@ class FinanceRepository(private val context: Context) {
         recalculateAllMonths()
     }
 
+    fun getInvoiceForCard(card: CreditCardItem, month: String): Double {
+        val data = _monthDataMap[month] ?: return 0.0
+        return data.items.filter { isTransactionForCard(it, card, _accounts.value) }.sumOf { it.amount }
+    }
+
     fun getInvoiceForCard(cardName: String, month: String): Double {
+        val card = _cards.value.find { it.name.equals(cardName, ignoreCase = true) }
+        if (card != null) {
+            return getInvoiceForCard(card, month)
+        }
         val data = _monthDataMap[month] ?: return 0.0
         return data.items.filter {
             it.type == TransactionType.EXPENSE &&
-            (it.accountOrCardName.contains(cardName, ignoreCase = true) || it.description.contains(cardName, ignoreCase = true))
+            it.paymentType == PaymentType.CREDIT_CARD &&
+            it.accountOrCardName.equals(cardName, ignoreCase = true)
         }.sumOf { it.amount }
     }
 
+    fun getPurchasesForCard(card: CreditCardItem, month: String): List<TransactionItem> {
+        val data = _monthDataMap[month] ?: return emptyList()
+        return data.items.filter { isTransactionForCard(it, card, _accounts.value) }
+    }
+
     fun getPurchasesForCard(cardName: String, month: String): List<TransactionItem> {
+        val card = _cards.value.find { it.name.equals(cardName, ignoreCase = true) }
+        if (card != null) {
+            return getPurchasesForCard(card, month)
+        }
         val data = _monthDataMap[month] ?: return emptyList()
         return data.items.filter {
-            it.accountOrCardName.contains(cardName, ignoreCase = true) || it.description.contains(cardName, ignoreCase = true)
+            it.accountOrCardName.equals(cardName, ignoreCase = true)
         }
     }
 

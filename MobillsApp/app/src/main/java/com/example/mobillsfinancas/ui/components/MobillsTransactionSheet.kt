@@ -25,11 +25,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.app.DatePickerDialog
+import androidx.compose.ui.platform.LocalContext
 import com.example.mobillsfinancas.data.*
 import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.utils.Formatters
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,8 +62,17 @@ fun MobillsTransactionSheet(
     var amountText by remember {
         mutableStateOf(
             if (existingItem != null && existingItem.amount > 0) {
-                String.format(Locale.US, "%.2f", existingItem.amount)
+                Formatters.formatCurrencyPlain(existingItem.amount)
             } else ""
+        )
+    }
+    var dateText by remember {
+        mutableStateOf(
+            if (!existingItem?.date.isNullOrBlank()) {
+                existingItem!!.date
+            } else {
+                SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+            }
         )
     }
     var description by remember { mutableStateOf(existingItem?.description ?: "") }
@@ -385,12 +399,14 @@ fun MobillsTransactionSheet(
 
                         Text("Valor", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
 
-                        // Input Grande de Valor
+                        // Input Grande de Valor com Máscara de Moeda (Pontos no milhar e vírgula nos centavos)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("R$ ", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                             OutlinedTextField(
                                 value = amountText,
-                                onValueChange = { amountText = it },
+                                onValueChange = { input ->
+                                    amountText = Formatters.formatCurrencyInput(input)
+                                },
                                 placeholder = { Text("0,00", color = Color.White.copy(alpha = 0.6f), fontSize = 32.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedTextColor = Color.White,
@@ -399,9 +415,98 @@ fun MobillsTransactionSheet(
                                     unfocusedBorderColor = Color.Transparent
                                 ),
                                 textStyle = LocalTextStyle.current.copy(fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Start),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true
                             )
+                        }
+
+                        // Atalhos rápidos para valores
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                modifier = Modifier.clickable {
+                                    val digits = amountText.filter { it.isDigit() }
+                                    if (digits.isNotBlank()) {
+                                        amountText = Formatters.formatCurrencyInput(digits + "00")
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = "+,00",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                modifier = Modifier.clickable {
+                                    val currentVal = Formatters.parseCurrency(amountText)
+                                    amountText = Formatters.formatCurrencyPlain(currentVal + 10.0)
+                                }
+                            ) {
+                                Text(
+                                    text = "+10",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                modifier = Modifier.clickable {
+                                    val currentVal = Formatters.parseCurrency(amountText)
+                                    amountText = Formatters.formatCurrencyPlain(currentVal + 50.0)
+                                }
+                            ) {
+                                Text(
+                                    text = "+50",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.22f),
+                                modifier = Modifier.clickable {
+                                    val currentVal = Formatters.parseCurrency(amountText)
+                                    amountText = Formatters.formatCurrencyPlain(currentVal + 100.0)
+                                }
+                            ) {
+                                Text(
+                                    text = "+100",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            if (amountText.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.22f),
+                                    modifier = Modifier.clickable { amountText = "" }
+                                ) {
+                                    Text(
+                                        text = "Limpar ⌫",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -436,6 +541,61 @@ fun MobillsTransactionSheet(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Campo Data do Lançamento
+                    val sheetContext = LocalContext.current
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val cal = Calendar.getInstance()
+                                val parts = dateText.split("/")
+                                val y = if (parts.size == 3) parts[2].toIntOrNull() ?: cal.get(Calendar.YEAR) else cal.get(Calendar.YEAR)
+                                val m = if (parts.size == 3) ((parts[1].toIntOrNull() ?: 1) - 1).coerceIn(0, 11) else cal.get(Calendar.MONTH)
+                                val d = if (parts.size == 3) (parts[0].toIntOrNull() ?: cal.get(Calendar.DAY_OF_MONTH)).coerceIn(1, 31) else cal.get(Calendar.DAY_OF_MONTH)
+                                DatePickerDialog(sheetContext, { _, year, month, dayOfMonth ->
+                                    dateText = String.format(Locale.getDefault(), "%02d/%02d/%04d", dayOfMonth, month + 1, year)
+                                }, y, m, d).show()
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📅", fontSize = 20.sp)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Data do Lançamento", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = dateText.ifBlank { "Selecionar data" },
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MobillsGreenPrimary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "Alterar 🗓️",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MobillsGreenPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -574,6 +734,15 @@ fun MobillsTransactionSheet(
                                 val creditCards = cards.filter { it.cardType.allowsCredit }.ifEmpty { cards }
                                 items(creditCards) { card ->
                                     val isSelected = selectedAccountOrCard == card.name
+                                    val linkedAcc = accounts.find { it.id == card.linkedAccountId }
+                                    val duplicateCount = cards.count { it.name.trim().equals(card.name.trim(), ignoreCase = true) }
+                                    val chipLabel = if (duplicateCount > 1 && linkedAcc != null) {
+                                        "${card.name} (${linkedAcc.name})"
+                                    } else if (card.cardType != CardType.CREDIT) {
+                                        "${card.name} (${card.cardType.label})"
+                                    } else {
+                                        card.name
+                                    }
                                     FilterChip(
                                         selected = isSelected,
                                         onClick = { selectedAccountOrCard = card.name },
@@ -581,9 +750,7 @@ fun MobillsTransactionSheet(
                                             Text(if (card.cardType.isVirtual) "🌐" else "💳", fontSize = 12.sp)
                                         },
                                         label = {
-                                            Text(
-                                                text = if (card.cardType != CardType.CREDIT) "${card.name} (${card.cardType.label})" else card.name
-                                            )
+                                            Text(text = chipLabel)
                                         }
                                     )
                                 }
@@ -609,13 +776,20 @@ fun MobillsTransactionSheet(
                                     val debitCards = cards.filter { it.cardType.allowsDebit }
                                     items(debitCards) { card ->
                                         val isSelected = selectedAccountOrCard == card.name
+                                        val linkedAcc = accounts.find { it.id == card.linkedAccountId }
+                                        val duplicateCount = cards.count { it.name.trim().equals(card.name.trim(), ignoreCase = true) }
+                                        val chipLabel = if (duplicateCount > 1 && linkedAcc != null) {
+                                            "${card.name} (${linkedAcc.name})"
+                                        } else {
+                                            "${card.name} (${card.cardType.label})"
+                                        }
                                         FilterChip(
                                             selected = isSelected,
                                             onClick = { selectedAccountOrCard = card.name },
                                             leadingIcon = {
                                                 Text(if (card.cardType.isVirtual) "🌐" else "💳", fontSize = 12.sp)
                                             },
-                                            label = { Text("${card.name} (${card.cardType.label})") }
+                                            label = { Text(chipLabel) }
                                         )
                                     }
                                 }
@@ -1197,7 +1371,7 @@ fun MobillsTransactionSheet(
 
                         Button(
                             onClick = {
-                                val cleanVal = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                val cleanVal = Formatters.parseCurrency(amountText)
                                 if (cleanVal > 0 && description.isNotBlank()) {
                                     val finalAmount = if (totalInstallmentsCount > 1 && !isAmountPerInstallment) {
                                         cleanVal / totalInstallmentsCount
@@ -1221,6 +1395,7 @@ fun MobillsTransactionSheet(
                                             accountOrCardName = selectedAccountOrCard,
                                             paymentType = selectedPaymentType,
                                             tags = selectedTags.toList(),
+                                            date = dateText,
                                             status = if (isPaid) PaymentStatus.PAID else PaymentStatus.PENDING,
                                             isRecurring = isRecurring,
                                             currentInstallment = if (isRecurring) 1 else startInstallment,
@@ -1240,6 +1415,7 @@ fun MobillsTransactionSheet(
                                             paymentType = selectedPaymentType,
                                             tags = selectedTags.toList(),
                                             monthYear = currentMonth,
+                                            date = dateText,
                                             status = if (isPaid) PaymentStatus.PAID else PaymentStatus.PENDING,
                                             isRecurring = isRecurring,
                                             currentInstallment = if (isRecurring) 1 else startInstallment,
