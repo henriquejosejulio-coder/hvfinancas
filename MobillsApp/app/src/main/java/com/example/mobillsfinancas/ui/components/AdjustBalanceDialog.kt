@@ -104,24 +104,140 @@ fun AdjustBalanceDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Saldo do Mês", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        text = { Text("Salário / Renda", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Bancos / Contas", fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                        text = { Text("Saldo do Mês", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                    )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = { Text("Bancos / Contas", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     )
                 }
 
                 if (selectedTab == 0) {
-                    // Aba 0: Acerto do Saldo do Mês
+                    // Aba 0: Ajustar Salário / Receita Base
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(20.dp)
                     ) {
-                        // Card informativo
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "💵 Salário e Receita Base: $selectedMonth",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Defina sua renda base mensal (ex: seu salário de R$ 3.300,00). O HV Finanças usa esse valor como base para abater suas despesas fixas, mercado e calcular quanto sobra livre para você.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Salário Base Atual
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Salário / Receita atual:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = Formatters.formatMoney(baseIncome),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = IncomeGreen
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Text(
+                            text = "Novo Salário / Receita Mensal",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Digite o valor da sua receita base fixa:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = baseIncomeInput,
+                            onValueChange = { baseIncomeInput = Formatters.formatCurrencyInput(it) },
+                            label = { Text("Salário / Receita Base (R$)") },
+                            placeholder = { Text("0,00") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { applyToFutureMonths = !applyToFutureMonths }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(
+                                checked = applyToFutureMonths,
+                                onCheckedChange = { applyToFutureMonths = it },
+                                colors = CheckboxDefaults.colors(checkedColor = MobillsGreenPrimary)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Aplicar também para os meses seguintes",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Button(
+                            onClick = {
+                                val clean = Formatters.parseCurrency(baseIncomeInput)
+                                onSetBaseIncome(clean, applyToFutureMonths)
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("✓ Salvar Salário Base", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                } else if (selectedTab == 1) {
+                    // Aba 1: Acerto do Saldo do Mês
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(20.dp)
+                    ) {
                         Surface(
                             shape = MaterialTheme.shapes.medium,
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -136,7 +252,7 @@ fun AdjustBalanceDialog(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Como você está começando a usar o app agora, você pode definir quanto realmente sobrou hoje. O HV Finanças recalcula tudo na hora e transfere esse saldo para o próximo mês!",
+                                    text = "Você pode definir quanto sobrou no final do mês. O app ajusta a diferença e transfere esse saldo para o próximo mês ao virar a folha.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -166,9 +282,8 @@ fun AdjustBalanceDialog(
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Opção 1: Definir Saldo Real
                         Text(
-                            text = "Opção 1 • Definir Saldo Real Final",
+                            text = "Definir Saldo Real Final",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -190,7 +305,7 @@ fun AdjustBalanceDialog(
                             singleLine = true
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         Button(
                             onClick = {
@@ -202,71 +317,6 @@ fun AdjustBalanceDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("✓ Confirmar Acerto de Saldo", fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Opção 2: Ajustar Renda Base do Mês
-                        Text(
-                            text = "Opção 2 • Ajustar Salário / Receita Base",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Defina sua receita base mensal (se zerar, os meses seguintes também serão zerados):",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = baseIncomeInput,
-                            onValueChange = { baseIncomeInput = Formatters.formatCurrencyInput(it) },
-                            label = { Text("Salário / Receita Base (R$)") },
-                            placeholder = { Text("0,00") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { applyToFutureMonths = !applyToFutureMonths }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(
-                                checked = applyToFutureMonths,
-                                onCheckedChange = { applyToFutureMonths = it },
-                                colors = CheckboxDefaults.colors(checkedColor = MobillsGreenPrimary)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Aplicar também para os meses seguintes",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Button(
-                            onClick = {
-                                val clean = Formatters.parseCurrency(baseIncomeInput)
-                                onSetBaseIncome(clean, applyToFutureMonths)
-                                onDismiss()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("✓ Salvar Salário Base", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 } else {

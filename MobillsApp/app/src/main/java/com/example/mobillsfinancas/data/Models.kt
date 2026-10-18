@@ -35,7 +35,8 @@ data class CategoryItem(
     val iconEmoji: String,
     val colorHex: Long,
     val isExpense: Boolean = true,
-    val budgetLimit: Double = 0.0 // Teto mensal de gastos (0.0 = sem limite definido)
+    val budgetLimit: Double = 0.0, // Teto mensal de gastos (0.0 = sem limite definido)
+    val reserveInBudget: Boolean = false // Se true, o teto restante entra na reserva do Total de Despesas do mês
 )
 
 data class TagItem(

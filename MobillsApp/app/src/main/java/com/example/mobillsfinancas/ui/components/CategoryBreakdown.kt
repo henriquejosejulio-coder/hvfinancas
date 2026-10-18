@@ -35,7 +35,7 @@ fun CategoryBreakdown(
     categories: List<CategoryItem> = emptyList(),
     totalExpense: Double,
     hideValues: Boolean,
-    onSetBudgetLimit: ((categoryId: String, limit: Double) -> Unit)? = null,
+    onSetBudgetLimit: ((categoryId: String, limit: Double, reserveInBudget: Boolean) -> Unit)? = null,
     onEditTransaction: ((TransactionItem) -> Unit)? = null
 ) {
     var selectedCategoryForBudget by remember { mutableStateOf<CategoryItem?>(null) }
@@ -775,6 +775,8 @@ fun CategoryBreakdown(
 
     // --- DIÁLOGO PARA DEFINIR / EDITAR O TETO DA CATEGORIA ---
     selectedCategoryForBudget?.let { cat ->
+        var reserveInBudgetState by remember(cat) { mutableStateOf(cat.reserveInBudget) }
+
         Dialog(onDismissRequest = { selectedCategoryForBudget = null }) {
             Card(
                 shape = MaterialTheme.shapes.extraLarge,
@@ -837,13 +839,55 @@ fun CategoryBreakdown(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Opção de Reservar no Total de Despesas do Mês
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { reserveInBudgetState = !reserveInBudgetState }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = "Reservar no Total de Despesas",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (reserveInBudgetState) {
+                                        "O teto não gasto entra na soma das despesas e abate do saldo livre."
+                                    } else {
+                                        "Apenas visual/alerta. Não deduz do dinheiro livre para você."
+                                    },
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = reserveInBudgetState,
+                                onCheckedChange = { reserveInBudgetState = it }
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Botão Principal: Salvar Teto (Largo, visível e sem espremer)
+                    // Botão Principal: Salvar Teto
                     Button(
                         onClick = {
                             val limit = Formatters.parseCurrency(budgetInputText)
-                            onSetBudgetLimit?.invoke(cat.id, limit)
+                            onSetBudgetLimit?.invoke(cat.id, limit, reserveInBudgetState)
                             selectedCategoryForBudget = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
@@ -866,7 +910,7 @@ fun CategoryBreakdown(
                         if (cat.budgetLimit > 0) {
                             TextButton(
                                 onClick = {
-                                    onSetBudgetLimit?.invoke(cat.id, 0.0)
+                                    onSetBudgetLimit?.invoke(cat.id, 0.0, false)
                                     selectedCategoryForBudget = null
                                 },
                                 colors = ButtonDefaults.textButtonColors(contentColor = ExpenseRed)

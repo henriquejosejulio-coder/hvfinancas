@@ -309,8 +309,8 @@ fun MainScreen(
                         viewModel.dismissQuickInstallments(null)
                     },
                     categories = categories,
-                    onSetBudgetLimit = { catId, limit ->
-                        viewModel.updateCategoryBudget(catId, limit)
+                    onSetBudgetLimit = { catId, limit, reserve ->
+                        viewModel.updateCategoryBudget(catId, limit, reserve)
                     },
                     onRequestNotificationPermission = {
                         showNotificationHelpDialog = true
@@ -1165,7 +1165,7 @@ fun DashboardTab(
     onDismissQuickInstallments: (String) -> Unit,
     onDismissAllQuickInstallments: () -> Unit = {},
     categories: List<com.example.mobillsfinancas.data.CategoryItem> = emptyList(),
-    onSetBudgetLimit: (String, Double) -> Unit = { _, _ -> },
+    onSetBudgetLimit: (String, Double, Boolean) -> Unit = { _, _, _ -> },
     onRequestNotificationPermission: () -> Unit
 ) {
     val items = currentMonthData?.items ?: emptyList()
@@ -1273,9 +1273,9 @@ fun DashboardTab(
         }
 
         item {
-            val unspentBudgets = categories.filter { it.budgetLimit > 0 }.sumOf { cat ->
+            val unspentBudgets = categories.filter { it.budgetLimit > 0 && it.reserveInBudget }.sumOf { cat ->
                 val spentInCat = (currentMonthData?.items ?: emptyList()).filter { 
-                    it.type == TransactionType.EXPENSE && it.category.equals(cat.name, ignoreCase = true)
+                    it.type == TransactionType.EXPENSE && it.includeInBudget && it.category.equals(cat.name, ignoreCase = true)
                 }.sumOf { it.amount }
                 maxOf(0.0, cat.budgetLimit - spentInCat)
             }
@@ -1306,7 +1306,7 @@ fun DashboardTab(
                 onEditAccount = onEditAccount,
                 onAddAccount = onAddAccount,
                 onTransfer = onTransfer,
-                onAdjustBalance = { onAdjustBalance(1) },
+                onAdjustBalance = { onAdjustBalance(2) },
                 onReorderAccounts = onReorderAccounts
             )
         }

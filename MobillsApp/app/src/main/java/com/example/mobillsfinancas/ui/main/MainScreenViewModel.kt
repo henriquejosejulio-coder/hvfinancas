@@ -145,8 +145,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         repository.addCategory(category)
     }
 
-    fun updateCategoryBudget(categoryId: String, budget: Double) {
-        repository.updateCategoryBudget(categoryId, budget)
+    fun updateCategoryBudget(categoryId: String, budget: Double, reserveInBudget: Boolean = true) {
+        repository.updateCategoryBudget(categoryId, budget, reserveInBudget)
     }
 
     fun deleteCategory(id: String) {

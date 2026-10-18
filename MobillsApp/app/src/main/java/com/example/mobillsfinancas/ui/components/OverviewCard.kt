@@ -68,7 +68,7 @@ fun OverviewCard(
                         Text("🎯", fontSize = 16.sp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Disponível para Gastar Comigo",
+                            text = "Sobrou para Gastar Comigo",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -168,8 +168,14 @@ fun OverviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Receitas
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Receitas (clicável para ajustar o Salário Base/Renda)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = onAdjustBalance != null) { onAdjustBalance?.invoke() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(32.dp)
@@ -181,7 +187,11 @@ fun OverviewCard(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text("Receitas", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Receitas", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("✏️", fontSize = 10.sp)
+                        }
                         Text(
                             text = Formatters.formatMoney(effectiveIncome, hideValues),
                             style = MaterialTheme.typography.titleSmall,
@@ -204,7 +214,7 @@ fun OverviewCard(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text("Comprometido", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Total Despesas", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             text = Formatters.formatMoney(totalCommitted, hideValues),
                             style = MaterialTheme.typography.titleSmall,
@@ -269,16 +279,24 @@ fun OverviewCard(
                 if (unspentBudgets > 0) {
                     Spacer(modifier = Modifier.height(3.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🍽️ Mercado (Teto Reservado)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("🛒 Mercado / Tetos Reservados", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("- " + Formatters.formatMoney(unspentBudgets, hideValues), fontSize = 11.sp, color = Color(0xFFFF9800))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("📋 Total de Despesas", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
+                    Text("- " + Formatters.formatMoney(totalCommitted, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("🎯 LIVRE PARA VOCÊ", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("🎯 SOBROU LIVRE", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
                     Text(Formatters.formatMoney(freeToSpend, hideValues), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = if (freeToSpend >= 0) MobillsGreenPrimary else ExpenseRed)
                 }
             }

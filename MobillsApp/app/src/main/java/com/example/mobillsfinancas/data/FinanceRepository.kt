@@ -115,9 +115,10 @@ class FinanceRepository(private val context: Context) {
 
     private fun initDefaultCategoriesAndTags() {
         _categories.value = listOf(
-            CategoryItem(id = "cat_alim", name = "Alimentação", iconEmoji = "🍔", colorHex = 0xFFFF9800, budgetLimit = 700.0),
+            CategoryItem(id = "cat_merc", name = "Mercado", iconEmoji = "🛒", colorHex = 0xFFFF9800, budgetLimit = 700.0, reserveInBudget = true),
+            CategoryItem(id = "cat_alim", name = "Alimentação", iconEmoji = "🍔", colorHex = 0xFFFF9800, budgetLimit = 0.0, reserveInBudget = false),
             CategoryItem(id = "cat_mora", name = "Moradia", iconEmoji = "🏠", colorHex = 0xFF3F51B5),
-            CategoryItem(id = "cat_tran", name = "Transporte", iconEmoji = "🚗", colorHex = 0xFF00BCD4, budgetLimit = 0.0),
+            CategoryItem(id = "cat_tran", name = "Transporte", iconEmoji = "🚗", colorHex = 0xFF00BCD4, budgetLimit = 0.0, reserveInBudget = false),
             CategoryItem(id = "cat_card", name = "Cartão de Crédito", iconEmoji = "💳", colorHex = 0xFFE91E63),
             CategoryItem(id = "cat_saud", name = "Saúde & Esporte", iconEmoji = "🏋️", colorHex = 0xFF4CAF50),
             CategoryItem(id = "cat_cuid", name = "Cuidados Pessoais", iconEmoji = "💈", colorHex = 0xFF9C27B0),
@@ -322,10 +323,11 @@ class FinanceRepository(private val context: Context) {
         saveToDisk()
     }
 
-    fun updateCategoryBudget(categoryId: String, budget: Double) {
+    fun updateCategoryBudget(categoryId: String, budget: Double, reserveInBudget: Boolean = true) {
         _categories.value = _categories.value.map {
-            if (it.id == categoryId) it.copy(budgetLimit = budget) else it
+            if (it.id == categoryId) it.copy(budgetLimit = budget, reserveInBudget = reserveInBudget) else it
         }
+        recalculateAllMonths()
         saveToDisk()
     }
 
@@ -698,16 +700,23 @@ class FinanceRepository(private val context: Context) {
      * - Desodorante: R$ 26,48
      */
     private fun reconcileNovemberBudget() {
-        // Ajusta limites das categorias padrão para refletir a planilha
-        val catList = _categories.value.map {
-            if (it.name.equals("Transporte", ignoreCase = true) && it.budgetLimit == 250.0) {
-                it.copy(budgetLimit = 0.0)
-            } else if (it.name.equals("Alimentação", ignoreCase = true) && it.budgetLimit != 700.0) {
-                it.copy(budgetLimit = 700.0)
+        // Ajusta categorias para garantir a existência de Mercado e configurar tetos padrão
+        val hasMercadoCat = _categories.value.any { it.id == "cat_merc" || it.name.equals("Mercado", ignoreCase = true) }
+        var catList = _categories.value.toMutableList()
+        if (!hasMercadoCat) {
+            catList.add(0, CategoryItem(id = "cat_merc", name = "Mercado", iconEmoji = "🛒", colorHex = 0xFFFF9800, budgetLimit = 700.0, reserveInBudget = true))
+        }
+        catList = catList.map {
+            if (it.name.equals("Mercado", ignoreCase = true)) {
+                it.copy(budgetLimit = 700.0, reserveInBudget = true)
+            } else if (it.name.equals("Alimentação", ignoreCase = true) && it.budgetLimit == 700.0) {
+                it.copy(budgetLimit = 0.0, reserveInBudget = false)
+            } else if (it.name.equals("Transporte", ignoreCase = true) && it.budgetLimit == 250.0) {
+                it.copy(budgetLimit = 0.0, reserveInBudget = false)
             } else {
                 it
             }
-        }
+        }.toMutableList()
         if (catList != _categories.value) {
             _categories.value = catList
         }
@@ -720,7 +729,20 @@ class FinanceRepository(private val context: Context) {
             changed = true
         }
 
-        val updatedItems = novData.items.map { item ->
+        // Remove itens que não existem ou estão em branco na planilha atualizada:
+        // - Desodorante: em branco (R$ 0,00)
+        // - YouTube Premium avulso: em branco ("lembrar vem inter")
+        // - Parcela Growth de 17,65 no Cartão Inter (para a fatura fechar em R$ 362,96)
+        val filteredList = novData.items.filterNot {
+            it.description.contains("Desodorante", ignoreCase = true) ||
+            it.description.contains("GROWTHSUPPLEMENTS", ignoreCase = true) ||
+            (it.description.contains("YouTube", ignoreCase = true) && it.paymentType != PaymentType.CREDIT_CARD)
+        }
+        if (filteredList.size != novData.items.size) {
+            changed = true
+        }
+
+        val updatedItems = filteredList.map { item ->
             var updated = item
 
             // 1. Internet: R$ 79,90
@@ -777,14 +799,8 @@ class FinanceRepository(private val context: Context) {
                 changed = true
             }
 
-            // 10. YouTube Premium: R$ 26,90
-            if (updated.description.contains("YouTube", ignoreCase = true) && updated.amount != 26.90) {
-                updated = updated.copy(amount = 26.90)
-                changed = true
-            }
-
-            // 11. Compras parceladas antigas de supermercado no Cartão Inter:
-            // Pertencem à fatura do cartão (R$ 380,61), não ao teto novo de mercado
+            // 10. Compras parceladas antigas de supermercado no Cartão Inter:
+            // Pertencem à fatura do cartão (R$ 362,96), não ao teto novo de mercado
             if (updated.paymentType == PaymentType.CREDIT_CARD &&
                 (updated.description.contains("ARMACAO", ignoreCase = true) || updated.description.contains("SUPERMERCADOS BH", ignoreCase = true))) {
                 if (updated.category != "Cartão de Crédito" || !updated.includeInBudget) {
@@ -798,7 +814,7 @@ class FinanceRepository(private val context: Context) {
                 }
             }
 
-            // 12. Cofrinho se já existir como transferência
+            // 11. Cofrinho se já existir como transferência
             if (updated.type == TransactionType.TRANSFER && updated.description.contains("Cofrinho", ignoreCase = true)) {
                 if (updated.amount != 1000.0 || !updated.includeInBudget) {
                     updated = updated.copy(amount = 1000.0, includeInBudget = true)
@@ -806,7 +822,7 @@ class FinanceRepository(private val context: Context) {
                 }
             }
 
-            // 13. Gladstoni se já existir
+            // 12. Gladstoni se já existir
             if (updated.description.contains("Gladstoni", ignoreCase = true)) {
                 if (updated.amount != 400.0 || updated.type != TransactionType.INCOME) {
                     updated = updated.copy(amount = 400.0, type = TransactionType.INCOME)
@@ -816,30 +832,6 @@ class FinanceRepository(private val context: Context) {
 
             updated
         }.toMutableList()
-
-        // Desodorante: R$ 26,48
-        val hasDesodorante = updatedItems.any { it.description.contains("Desodorante", ignoreCase = true) }
-        if (!hasDesodorante) {
-            val desodoranteItem = TransactionItem(
-                id = "desod_nov_2026",
-                description = "Desodorante",
-                amount = 26.48,
-                type = TransactionType.EXPENSE,
-                category = "Cuidados Pessoais",
-                categoryIcon = "💈",
-                categoryColorHex = 0xFF9C27B0,
-                accountOrCardName = "Conta Inter",
-                paymentType = PaymentType.DEBIT_CARD,
-                tags = listOf("pessoal"),
-                monthYear = "NOVEMBRO 2026",
-                date = "",
-                status = PaymentStatus.PENDING,
-                isRecurring = false,
-                includeInBudget = true
-            )
-            updatedItems.add(desodoranteItem)
-            changed = true
-        }
 
         // Gladstoni: R$ 400,00 (Receber)
         val hasGladstoni = updatedItems.any { it.description.contains("Gladstoni", ignoreCase = true) }
@@ -1912,6 +1904,7 @@ class FinanceRepository(private val context: Context) {
                 o.put("colorHex", cat.colorHex)
                 o.put("isExpense", cat.isExpense)
                 o.put("budgetLimit", cat.budgetLimit)
+                o.put("reserveInBudget", cat.reserveInBudget)
                 catArr.put(o)
             }
             rootObj.put("categories", catArr)
@@ -2024,15 +2017,19 @@ class FinanceRepository(private val context: Context) {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val catId = o.optString("id", UUID.randomUUID().toString())
-                val defaultLimit = if (catId == "cat_tran") 250.0 else if (catId == "cat_alim") 700.0 else 0.0
+                val catName = o.optString("name", "Geral")
+                val isMercadoOrAlim = catId == "cat_merc" || catId == "cat_alim" || catName.equals("Mercado", ignoreCase = true)
+                val defaultLimit = if (isMercadoOrAlim) 700.0 else 0.0
+                val defaultReserve = isMercadoOrAlim
                 list.add(
                     CategoryItem(
                         id = catId,
-                        name = o.optString("name", "Geral"),
+                        name = catName,
                         iconEmoji = o.optString("iconEmoji", "🏷️"),
                         colorHex = o.optLong("colorHex", 0xFF00A868L),
                         isExpense = o.optBoolean("isExpense", true),
-                        budgetLimit = o.optDouble("budgetLimit", defaultLimit)
+                        budgetLimit = o.optDouble("budgetLimit", defaultLimit),
+                        reserveInBudget = o.optBoolean("reserveInBudget", defaultReserve)
                     )
                 )
             }
