@@ -1,5 +1,6 @@
 package com.example.mobillsfinancas.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -33,7 +34,7 @@ import com.example.mobillsfinancas.utils.Formatters
 fun TransferDialog(
     accounts: List<AccountItem>,
     onDismiss: () -> Unit,
-    onTransfer: (fromId: String, toId: String, amount: Double, isScheduled: Boolean, date: String) -> Unit
+    onTransfer: (fromId: String, toId: String, amount: Double, isScheduled: Boolean, date: String, isRecurring: Boolean) -> Unit
 ) {
     if (accounts.size < 2) return
 
@@ -44,6 +45,7 @@ fun TransferDialog(
     }
     var amountText by remember { mutableStateOf("") }
     var isScheduled by remember { mutableStateOf(false) }
+    var isRecurring by remember { mutableStateOf(false) }
     var dateText by remember { mutableStateOf<String>(Formatters.todayDateString()) }
 
     val fromAcc = accounts.getOrNull(fromIndex) ?: accounts.first()
@@ -264,6 +266,73 @@ fun TransferDialog(
                     }
                 }
 
+                // Switch: Repetir todo mês (Transferência Fixa Recorrente)
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, if (isRecurring) MobillsGreenPrimary.copy(alpha = 0.5f) else Color.Transparent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { isRecurring = !isRecurring }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Text("🔁", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Repetir todo mês",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (isRecurring) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MobillsGreenPrimary.copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "FIXO",
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MobillsGreenPrimary
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = if (isRecurring)
+                                        "Lança e projeta automaticamente em todos os meses seguintes"
+                                    else
+                                        "Apenas neste mês específico",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.sp,
+                                    color = if (isRecurring) MobillsGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isRecurring,
+                            onCheckedChange = { isRecurring = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MobillsGreenPrimary,
+                                checkedTrackColor = MobillsGreenPrimary.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
@@ -279,7 +348,7 @@ fun TransferDialog(
                         onClick = {
                             val amt = Formatters.parseCurrency(amountText)
                             if (amt > 0 && fromIndex != toIndex) {
-                                onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim())
+                                onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim(), isRecurring)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(

@@ -502,7 +502,8 @@ class FinanceRepository(private val context: Context) {
         toAccountId: String,
         amount: Double,
         isScheduled: Boolean = false,
-        date: String = ""
+        date: String = "",
+        isRecurring: Boolean = false
     ) {
         val fromAcc = _accounts.value.find { it.id == fromAccountId } ?: return
         val toAcc = _accounts.value.find { it.id == toAccountId } ?: return
@@ -522,6 +523,7 @@ class FinanceRepository(private val context: Context) {
         }
 
         val isToReserve = !toAcc.includeInOverallBalance
+        val groupId = if (isRecurring) "trf_rec_${UUID.randomUUID()}" else ""
         val txItem = TransactionItem(
             id = "trf_" + UUID.randomUUID().toString(),
             description = if (isScheduled) "Agendado: ${fromAcc.name} ➔ ${toAcc.name}" else "Transferência: ${fromAcc.name} ➔ ${toAcc.name}",
@@ -536,16 +538,22 @@ class FinanceRepository(private val context: Context) {
             date = txDate,
             status = if (isScheduled) PaymentStatus.PENDING else PaymentStatus.PAID,
             note = "fromAccountId:${fromAcc.id}|toAccountId:${toAcc.id}",
-            includeInBudget = isToReserve
+            includeInBudget = isToReserve,
+            isRecurring = isRecurring,
+            installmentGroupId = groupId
         )
 
-        val updatedItems = listOf(txItem) + targetMonthData.items
-        _monthDataMap[targetMonth] = targetMonthData.copy(
-            items = updatedItems,
-            lastModified = System.currentTimeMillis()
-        )
-        recalculateAllMonths()
-        saveToDisk()
+        if (isRecurring) {
+            addRecurringTransaction(txItem)
+        } else {
+            val updatedItems = listOf(txItem) + targetMonthData.items
+            _monthDataMap[targetMonth] = targetMonthData.copy(
+                items = updatedItems,
+                lastModified = System.currentTimeMillis()
+            )
+            recalculateAllMonths()
+            saveToDisk()
+        }
     }
 
     fun reorderAccounts(newAccounts: List<AccountItem>) {
@@ -947,7 +955,7 @@ class FinanceRepository(private val context: Context) {
             data = MonthData(
                 monthYear = monthYear,
                 items = recurringItems,
-                totalExpense = recurringItems.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount },
+                totalExpense = recurringItems.filter { it.type == TransactionType.EXPENSE || (it.type == TransactionType.TRANSFER && it.includeInBudget) }.sumOf { it.amount },
                 totalIncome = inheritedBaseIncome,
                 remainingBalance = inheritedBaseIncome,
                 baseIncome = inheritedBaseIncome,
@@ -1030,7 +1038,10 @@ class FinanceRepository(private val context: Context) {
                 installmentGroupId = groupId,
                 isRecurring = true,
                 monthYear = targetMonth,
-                status = if (isFirst) baseItem.status else PaymentStatus.PENDING
+                status = if (isFirst) baseItem.status else PaymentStatus.PENDING,
+                description = if (!isFirst && baseItem.type == TransactionType.TRANSFER) {
+                    baseItem.description.replace("Transferência:", "Agendado:")
+                } else baseItem.description
             )
 
             val existingIdx = monthData.items.indexOfFirst { it.installmentGroupId == groupId }

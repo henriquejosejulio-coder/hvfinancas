@@ -518,8 +518,8 @@ fun MainScreen(
                 TransferDialog(
                     accounts = accounts,
                     onDismiss = { showTransferDialog = false },
-                    onTransfer = { fromId, toId, amt, isScheduled, date ->
-                        viewModel.transfer(fromId, toId, amt, isScheduled, date)
+                    onTransfer = { fromId, toId, amt, isScheduled, date, isRecurring ->
+                        viewModel.transfer(fromId, toId, amt, isScheduled, date, isRecurring)
                         showTransferDialog = false
                     }
                 )

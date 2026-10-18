@@ -135,9 +135,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         toId: String,
         amount: Double,
         isScheduled: Boolean = false,
-        date: String = ""
+        date: String = "",
+        isRecurring: Boolean = false
     ) {
-        repository.transfer(fromId, toId, amount, isScheduled, date)
+        repository.transfer(fromId, toId, amount, isScheduled, date, isRecurring)
     }
 
     // Categorias e Tags
