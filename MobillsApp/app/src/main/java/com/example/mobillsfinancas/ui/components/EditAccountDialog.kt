@@ -1,5 +1,6 @@
 package com.example.mobillsfinancas.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -55,6 +57,10 @@ fun EditAccountDialog(
     var selectedColorHex by remember { mutableStateOf(account?.colorHex ?: 0xFF00A868L) }
     var isDefault by remember { mutableStateOf(account?.isDefault ?: false) }
     var includeInOverallBalance by remember { mutableStateOf(account?.includeInOverallBalance ?: true) }
+    var cdiRateText by remember {
+        val initialRate = account?.cdiRatePercentage ?: if (account?.name?.contains("Mercado Pago", ignoreCase = true) == true) 115.0 else 0.0
+        mutableStateOf(if (initialRate > 0) (if (initialRate % 1.0 == 0.0) initialRate.toInt().toString() else initialRate.toString()) else "")
+    }
 
     val accountPalette = remember(account?.colorHex) {
         val current = account?.colorHex
@@ -108,6 +114,9 @@ fun EditAccountDialog(
                                 onClick = {
                                     name = b.name
                                     selectedColorHex = b.colorHex
+                                    if (b.name.contains("Mercado Pago", ignoreCase = true) && cdiRateText.isBlank()) {
+                                        cdiRateText = "115"
+                                    }
                                 },
                                 label = { Text("${b.icon} ${b.name}", fontSize = 12.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
@@ -281,6 +290,139 @@ fun EditAccountDialog(
                     }
                 }
 
+                // Rendimento CDI (visível se for Cofrinho ou se tiver rendimento preenchido)
+                var showCdiConfig by remember { mutableStateOf(!includeInOverallBalance || cdiRateText.isNotBlank()) }
+                LaunchedEffect(includeInOverallBalance) {
+                    if (!includeInOverallBalance) showCdiConfig = true
+                }
+
+                if (showCdiConfig) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        shape = MaterialTheme.shapes.medium,
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "📈 Rendimento (% do CDI)",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF166534)
+                                )
+                                if (cdiRateText.isNotBlank()) {
+                                    Text(
+                                        text = "${cdiRateText}% CDI",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 12.sp,
+                                        color = MobillsGreenPrimary
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Defina a taxa de rendimento (ex: Mercado Pago rende 115% do CDI, Sofisa 110%, Nubank 100%).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF15803D)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Sugestões de taxas rápidas
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf("100", "105", "110", "115", "120").forEach { rate ->
+                                    val isSel = cdiRateText.trim() == rate
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { cdiRateText = rate },
+                                        label = {
+                                            Text(
+                                                text = if (rate == "115") "115% (MP)" else "$rate% CDI",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MobillsGreenPrimary.copy(alpha = 0.2f),
+                                            selectedLabelColor = MobillsGreenPrimary
+                                        )
+                                    )
+                                }
+                                if (cdiRateText.isNotBlank()) {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { cdiRateText = "" },
+                                        label = { Text("Sem rendimento", fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = cdiRateText,
+                                onValueChange = { cdiRateText = it.filter { c -> c.isDigit() || c == '.' } },
+                                label = { Text("Porcentagem do CDI") },
+                                placeholder = { Text("Ex: 115") },
+                                trailingIcon = { Text("% CDI ", fontWeight = FontWeight.Bold, color = MobillsGreenPrimary, fontSize = 13.sp) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            val parsedCdi = cdiRateText.toDoubleOrNull() ?: 0.0
+                            val parsedBal = Formatters.parseCurrency(balanceText)
+                            if (parsedCdi > 0 && parsedBal > 0) {
+                                val tempAcc = AccountItem(id = "", name = "", balance = parsedBal, cdiRatePercentage = parsedCdi)
+                                val estMonthly = tempAcc.calculateMonthlyYield()
+                                val estDaily = tempAcc.calculateDailyYield()
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFDCFCE7),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            text = "💰 Estimativa com CDI atual (~10,65% a.a.):",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF166534)
+                                        )
+                                        Text(
+                                            text = "+${Formatters.formatMoney(estMonthly)} / mês  (~+${Formatters.formatMoney(estDaily)} / dia útil)",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF15803D)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    TextButton(
+                        onClick = { showCdiConfig = true },
+                        modifier = Modifier.align(Alignment.Start)
+                    ) {
+                        Text("+ Adicionar Rendimento CDI (Ex: 115% Mercado Pago)", fontSize = 12.sp, color = MobillsGreenPrimary)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
@@ -307,6 +449,7 @@ fun EditAccountDialog(
                         Button(
                             onClick = {
                                 val bal = Formatters.parseCurrency(balanceText)
+                                val parsedCdi = cdiRateText.toDoubleOrNull() ?: 0.0
                                 if (name.isNotBlank()) {
                                     val detectedBank = BankRegistry.findBankByName(name.trim())
                                     val bankIcon = detectedBank?.icon ?: (account?.bankIcon ?: "🏦")
@@ -316,7 +459,8 @@ fun EditAccountDialog(
                                         colorHex = selectedColorHex,
                                         bankIcon = bankIcon,
                                         isDefault = isDefault,
-                                        includeInOverallBalance = includeInOverallBalance
+                                        includeInOverallBalance = includeInOverallBalance,
+                                        cdiRatePercentage = parsedCdi
                                     ) ?: AccountItem(
                                         id = "acc_" + System.currentTimeMillis(),
                                         name = name.trim(),
@@ -324,7 +468,8 @@ fun EditAccountDialog(
                                         colorHex = selectedColorHex,
                                         bankIcon = bankIcon,
                                         isDefault = isDefault,
-                                        includeInOverallBalance = includeInOverallBalance
+                                        includeInOverallBalance = includeInOverallBalance,
+                                        cdiRatePercentage = parsedCdi
                                     )
                                     onSave(item)
                                 }

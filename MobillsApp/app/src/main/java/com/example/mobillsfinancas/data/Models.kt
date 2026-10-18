@@ -104,8 +104,21 @@ data class AccountItem(
     val colorHex: Long = 0xFF00A868,
     val bankIcon: String = "🏦",
     val isDefault: Boolean = false,
-    val includeInOverallBalance: Boolean = true // false para Cofrinhos, Reservas e Investimentos (não somam no saldo livre)
-)
+    val includeInOverallBalance: Boolean = true, // false para Cofrinhos, Reservas e Investimentos (não somam no saldo livre)
+    val cdiRatePercentage: Double = 0.0 // Ex: 115.0 para 115% do CDI (Mercado Pago), 100.0 para 100% do CDI
+) {
+    fun calculateMonthlyYield(annualCdiRate: Double = 10.65): Double {
+        if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
+        val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
+        val monthlyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 12.0) - 1.0
+        return balance * monthlyRate
+    }
+
+    fun calculateDailyYield(annualCdiRate: Double = 10.65): Double {
+        val monthly = calculateMonthlyYield(annualCdiRate)
+        return if (monthly > 0) monthly / 21.0 else 0.0 // média de 21 dias úteis
+    }
+}
 
 data class MonthData(
     val monthYear: String,

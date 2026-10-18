@@ -67,8 +67,13 @@ fun AccountsSection(
                     )
                     if (reservesTotal > 0) {
                         Spacer(modifier = Modifier.width(8.dp))
+                        val reservesMonthlyYield = accounts.filter { !it.includeInOverallBalance }.sumOf { it.calculateMonthlyYield() }
                         Text(
-                            text = "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)}",
+                            text = if (reservesMonthlyYield > 0) {
+                                "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)} (+~${Formatters.formatMoney(reservesMonthlyYield, hideValues)}/mês)"
+                            } else {
+                                "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)}"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF0284C7)
@@ -123,10 +128,10 @@ fun AccountsSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(accounts, key = { "${it.id}_${it.name}_${it.balance}_${it.colorHex}" }) { acc ->
+            items(accounts, key = { "${it.id}_${it.name}_${it.balance}_${it.colorHex}_${it.cdiRatePercentage}" }) { acc ->
                 Card(
                     modifier = Modifier
-                        .width(190.dp)
+                        .width(200.dp)
                         .combinedClickable(
                             onClick = { onEditAccount(acc) },
                             onLongClick = {
@@ -161,8 +166,9 @@ fun AccountsSection(
                                         shape = RoundedCornerShape(4.dp),
                                         color = Color(0xFFE0F2FE)
                                     ) {
+                                        val cdiStr = if (acc.cdiRatePercentage > 0) " • ${if (acc.cdiRatePercentage % 1.0 == 0.0) acc.cdiRatePercentage.toInt() else acc.cdiRatePercentage}% CDI" else ""
                                         Text(
-                                            text = "🐖 Reserva / Cofrinho",
+                                            text = "🐖 Cofrinho$cdiStr",
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
@@ -201,6 +207,18 @@ fun AccountsSection(
                             fontWeight = FontWeight.ExtraBold,
                             color = if (acc.balance >= 0) MaterialTheme.colorScheme.onSurface else Color.Red
                         )
+                        if (acc.cdiRatePercentage > 0.0 && acc.balance > 0.0) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            val estMonthly = acc.calculateMonthlyYield()
+                            Text(
+                                text = "📈 Rende ~${Formatters.formatMoney(estMonthly, hideValues)}/mês",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                                color = MobillsGreenPrimary,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

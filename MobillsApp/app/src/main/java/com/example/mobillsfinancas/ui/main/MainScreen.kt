@@ -178,7 +178,7 @@ fun MainScreen(
                                     )
                                 }
                             }
-                            val totalBalance = accounts.sumOf { it.balance }
+                            val totalBalance = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
                             Text(
                                 text = "Saldo: ${Formatters.formatMoney(totalBalance, viewModel.hideValues)}",
                                 style = MaterialTheme.typography.bodySmall,

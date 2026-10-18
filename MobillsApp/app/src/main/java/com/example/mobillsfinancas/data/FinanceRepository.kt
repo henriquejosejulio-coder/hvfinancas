@@ -1609,6 +1609,7 @@ class FinanceRepository(private val context: Context) {
                 o.put("bankIcon", acc.bankIcon)
                 o.put("isDefault", acc.isDefault)
                 o.put("includeInOverallBalance", acc.includeInOverallBalance)
+                o.put("cdiRatePercentage", acc.cdiRatePercentage)
                 accArr.put(o)
             }
             rootObj.put("accounts", accArr)
@@ -1744,16 +1745,19 @@ class FinanceRepository(private val context: Context) {
                     else -> AccountType.CHECKING
                 }
                 val defaultInclude = !(accId.contains("cofrinho", ignoreCase = true) || accId.contains("emergencia", ignoreCase = true) || accType == AccountType.SAVINGS || accType == AccountType.INVESTMENT)
+                val accName = o.optString("name", "Conta")
+                val defaultCdi = if (accName.contains("Mercado Pago", ignoreCase = true) || accId.contains("mp", ignoreCase = true)) 115.0 else 0.0
                 accList.add(
                     AccountItem(
                         id = accId,
-                        name = o.optString("name", "Conta"),
+                        name = accName,
                         type = accType,
                         balance = o.optDouble("balance", 0.0),
                         colorHex = o.optLong("colorHex", 0xFF00A86BL),
                         bankIcon = o.optString("bankIcon", "🏦"),
                         isDefault = o.optBoolean("isDefault", i == 0),
-                        includeInOverallBalance = o.optBoolean("includeInOverallBalance", defaultInclude)
+                        includeInOverallBalance = o.optBoolean("includeInOverallBalance", defaultInclude),
+                        cdiRatePercentage = o.optDouble("cdiRatePercentage", defaultCdi)
                     )
                 )
             }
