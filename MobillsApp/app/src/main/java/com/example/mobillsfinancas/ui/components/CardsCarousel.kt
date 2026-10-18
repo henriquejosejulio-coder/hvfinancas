@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -360,15 +361,16 @@ fun CreditCardView(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = card.name,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            maxLines = 1
+                            fontSize = if (card.name.length > 16) 13.sp else 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                         val linked = accounts.find { it.id == card.linkedAccountId }
                         if (linked != null) {
@@ -376,7 +378,8 @@ fun CreditCardView(
                                 text = "🔗 ${linked.bankIcon} ${linked.name}",
                                 color = Color.White.copy(alpha = 0.85f),
                                 fontSize = 10.sp,
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

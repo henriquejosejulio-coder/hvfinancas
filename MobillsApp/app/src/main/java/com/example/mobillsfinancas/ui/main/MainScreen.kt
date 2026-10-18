@@ -1723,21 +1723,22 @@ fun CardsTab(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = card.name,
+                                fontSize = if (card.name.length > 20) 18.sp else 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(card.colorHex),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = card.name,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(card.colorHex),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
                                     color = Color(card.colorHex).copy(alpha = 0.15f)
@@ -1750,16 +1751,16 @@ fun CardsTab(
                                         color = Color(card.colorHex)
                                     )
                                 }
-                            }
-                            val linkedAcc = accounts.find { it.id == card.linkedAccountId }
-                            if (linkedAcc != null) {
-                                Text(
-                                    text = "🔗 Conta: ${linkedAcc.bankIcon} ${linkedAcc.name}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                val linkedAcc = accounts.find { it.id == card.linkedAccountId }
+                                if (linkedAcc != null) {
+                                    Text(
+                                        text = "🔗 Conta: ${linkedAcc.bankIcon} ${linkedAcc.name}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
 
