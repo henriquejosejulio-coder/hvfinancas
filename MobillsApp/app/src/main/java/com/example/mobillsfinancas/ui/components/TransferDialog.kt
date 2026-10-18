@@ -20,9 +20,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.app.DatePickerDialog
+import androidx.compose.ui.platform.LocalContext
+import java.util.Calendar
+import java.util.Locale
 import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.utils.Formatters
+
 
 @Composable
 fun TransferDialog(
@@ -172,17 +177,65 @@ fun TransferDialog(
                     singleLine = true
                 )
 
-                if (isScheduled) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = dateText,
-                        onValueChange = { dateText = it },
-                        label = { Text("Data Prevista (DD/MM/AAAA)") },
-                        placeholder = { Text("Ex: 20/10/2026") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Campo Data com Seletor de Calendário Visual (DatePickerDialog)
+                val dialogContext = LocalContext.current
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val cal = Calendar.getInstance()
+                            val parts = dateText.split("/")
+                            val y = if (parts.size == 3) parts[2].toIntOrNull() ?: cal.get(Calendar.YEAR) else cal.get(Calendar.YEAR)
+                            val m = if (parts.size == 3) ((parts[1].toIntOrNull() ?: 1) - 1).coerceIn(0, 11) else cal.get(Calendar.MONTH)
+                            val d = if (parts.size == 3) (parts[0].toIntOrNull() ?: cal.get(Calendar.DAY_OF_MONTH)).coerceIn(1, 31) else cal.get(Calendar.DAY_OF_MONTH)
+                            DatePickerDialog(dialogContext, { _, year, month, dayOfMonth ->
+                                dateText = String.format(Locale.getDefault(), "%02d/%02d/%04d", dayOfMonth, month + 1, year)
+                            }, y, m, d).show()
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📅", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isScheduled) "Data Prevista / Agendada" else "Data da Transferência",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = dateText.ifBlank { "Selecionar data" },
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = (if (isScheduled) Color(0xFFFF9800) else MobillsGreenPrimary).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "Alterar 🗓️",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isScheduled) Color(0xFFE65100) else MobillsGreenPrimary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
+
 
                 if (isToCofrinho) {
                     Spacer(modifier = Modifier.height(12.dp))

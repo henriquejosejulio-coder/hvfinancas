@@ -59,4 +59,28 @@ object MonthHelper {
         if (pA.second != pB.second) return pA.second.compareTo(pB.second)
         return pA.first.compareTo(pB.first)
     }
+
+    fun getMonthYearFromDate(dateStr: String): String? {
+        val trimmed = dateStr.trim()
+        val parts = trimmed.split("/", "-")
+        if (parts.size == 3) {
+            if (parts[0].length == 4) {
+                // YYYY-MM-DD
+                val year = parts[0].toIntOrNull() ?: return null
+                val month = parts[1].toIntOrNull() ?: return null
+                if (month in 1..12 && year >= 2000) {
+                    return formatMonthYear(month - 1, year)
+                }
+            } else {
+                // DD/MM/YYYY
+                val month = parts[1].toIntOrNull() ?: return null
+                val year = parts[2].toIntOrNull() ?: return null
+                if (month in 1..12 && year >= 2000) {
+                    return formatMonthYear(month - 1, year)
+                }
+            }
+        }
+        return null
+    }
 }
+

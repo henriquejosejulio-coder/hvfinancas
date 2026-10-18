@@ -32,6 +32,7 @@ import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.utils.Formatters
+import com.example.mobillsfinancas.utils.MonthHelper
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -1384,6 +1385,7 @@ fun MobillsTransactionSheet(
                                         "$cleanDesc ($startInstallment/$totalInstallmentsCount)"
                                     } else cleanDesc
 
+                                    val targetMonth = MonthHelper.getMonthYearFromDate(dateText) ?: currentMonth
                                     val itemToSave = if (existingItem != null) {
                                         existingItem.copy(
                                             description = finalDesc,
@@ -1395,6 +1397,7 @@ fun MobillsTransactionSheet(
                                             accountOrCardName = selectedAccountOrCard,
                                             paymentType = selectedPaymentType,
                                             tags = selectedTags.toList(),
+                                            monthYear = targetMonth,
                                             date = dateText,
                                             status = if (isPaid) PaymentStatus.PAID else PaymentStatus.PENDING,
                                             isRecurring = isRecurring,
@@ -1414,7 +1417,7 @@ fun MobillsTransactionSheet(
                                             accountOrCardName = selectedAccountOrCard,
                                             paymentType = selectedPaymentType,
                                             tags = selectedTags.toList(),
-                                            monthYear = currentMonth,
+                                            monthYear = targetMonth,
                                             date = dateText,
                                             status = if (isPaid) PaymentStatus.PAID else PaymentStatus.PENDING,
                                             isRecurring = isRecurring,
