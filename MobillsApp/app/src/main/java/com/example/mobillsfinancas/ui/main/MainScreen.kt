@@ -1287,6 +1287,7 @@ fun DashboardTab(
                 previousMonthBalance = currentMonthData?.previousMonthBalance ?: 0.0,
                 currentMonthIncome = currentMonthData?.currentMonthIncome ?: 0.0,
                 unspentBudgets = unspentBudgets,
+                items = currentMonthData?.items ?: emptyList(),
                 hideValues = hideValues,
                 onAdjustBalance = { onAdjustBalance(0) }
             )

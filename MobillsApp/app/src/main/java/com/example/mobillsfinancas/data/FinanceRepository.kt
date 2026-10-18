@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.Calendar
 import com.example.mobillsfinancas.utils.MonthHelper
 import com.example.mobillsfinancas.utils.BankRegistry
 import com.example.mobillsfinancas.utils.SupportedBank
@@ -116,7 +117,7 @@ class FinanceRepository(private val context: Context) {
         _categories.value = listOf(
             CategoryItem(id = "cat_alim", name = "Alimentação", iconEmoji = "🍔", colorHex = 0xFFFF9800, budgetLimit = 700.0),
             CategoryItem(id = "cat_mora", name = "Moradia", iconEmoji = "🏠", colorHex = 0xFF3F51B5),
-            CategoryItem(id = "cat_tran", name = "Transporte", iconEmoji = "🚗", colorHex = 0xFF00BCD4, budgetLimit = 250.0),
+            CategoryItem(id = "cat_tran", name = "Transporte", iconEmoji = "🚗", colorHex = 0xFF00BCD4, budgetLimit = 0.0),
             CategoryItem(id = "cat_card", name = "Cartão de Crédito", iconEmoji = "💳", colorHex = 0xFFE91E63),
             CategoryItem(id = "cat_saud", name = "Saúde & Esporte", iconEmoji = "🏋️", colorHex = 0xFF4CAF50),
             CategoryItem(id = "cat_cuid", name = "Cuidados Pessoais", iconEmoji = "💈", colorHex = 0xFF9C27B0),
@@ -697,25 +698,126 @@ class FinanceRepository(private val context: Context) {
      * - Desodorante: R$ 26,48
      */
     private fun reconcileNovemberBudget() {
+        // Ajusta limites das categorias padrão para refletir a planilha
+        val catList = _categories.value.map {
+            if (it.name.equals("Transporte", ignoreCase = true) && it.budgetLimit == 250.0) {
+                it.copy(budgetLimit = 0.0)
+            } else if (it.name.equals("Alimentação", ignoreCase = true) && it.budgetLimit != 700.0) {
+                it.copy(budgetLimit = 700.0)
+            } else {
+                it
+            }
+        }
+        if (catList != _categories.value) {
+            _categories.value = catList
+        }
+
         val novData = _monthDataMap["NOVEMBRO 2026"] ?: return
         var changed = false
-        val updatedItems = novData.items.toMutableList()
-
-        // 1. Internet: R$ 79,90
-        val internetIdx = updatedItems.indexOfFirst { it.description.contains("Internet", ignoreCase = true) }
-        if (internetIdx != -1 && updatedItems[internetIdx].amount != 79.90) {
-            updatedItems[internetIdx] = updatedItems[internetIdx].copy(amount = 79.90)
+        var novBaseIncome = novData.baseIncome
+        if (novBaseIncome <= 0.0) {
+            novBaseIncome = 3300.0
             changed = true
         }
 
-        // 2. Tim: R$ 55,00
-        val timIdx = updatedItems.indexOfFirst { it.description.equals("Tim", ignoreCase = true) }
-        if (timIdx != -1 && updatedItems[timIdx].amount != 55.00) {
-            updatedItems[timIdx] = updatedItems[timIdx].copy(amount = 55.00)
-            changed = true
-        }
+        val updatedItems = novData.items.map { item ->
+            var updated = item
 
-        // 3. Desodorante: R$ 26,48
+            // 1. Internet: R$ 79,90
+            if (updated.description.contains("Internet", ignoreCase = true) && updated.amount != 79.90) {
+                updated = updated.copy(amount = 79.90)
+                changed = true
+            }
+
+            // 2. Tim: R$ 55,00
+            if (updated.description.equals("Tim", ignoreCase = true) && updated.amount != 55.00) {
+                updated = updated.copy(amount = 55.00)
+                changed = true
+            }
+
+            // 3. Aluguel: R$ 500,00
+            if (updated.description.contains("Aluguel", ignoreCase = true) && updated.amount != 500.00) {
+                updated = updated.copy(amount = 500.00)
+                changed = true
+            }
+
+            // 4. Água: R$ 95,00
+            if ((updated.description.contains("Água", ignoreCase = true) || updated.description.contains("Agua", ignoreCase = true)) && updated.amount != 95.00) {
+                updated = updated.copy(amount = 95.00)
+                changed = true
+            }
+
+            // 5. Luz: R$ 100,00
+            if (updated.description.contains("Luz", ignoreCase = true) && updated.amount != 100.00) {
+                updated = updated.copy(amount = 100.00)
+                changed = true
+            }
+
+            // 6. Capoeira: R$ 80,00
+            if (updated.description.contains("Capoeira", ignoreCase = true) && updated.amount != 80.00) {
+                updated = updated.copy(amount = 80.00)
+                changed = true
+            }
+
+            // 7. Dentista: R$ 109,90
+            if (updated.description.contains("Dentista", ignoreCase = true) && updated.amount != 109.90) {
+                updated = updated.copy(amount = 109.90)
+                changed = true
+            }
+
+            // 8. Alex: R$ 25,00
+            if (updated.description.contains("Alex", ignoreCase = true) && updated.amount != 25.00) {
+                updated = updated.copy(amount = 25.00)
+                changed = true
+            }
+
+            // 9. Barbeiro: R$ 50,00
+            if (updated.description.contains("Barbeiro", ignoreCase = true) && updated.amount != 50.00) {
+                updated = updated.copy(amount = 50.00)
+                changed = true
+            }
+
+            // 10. YouTube Premium: R$ 26,90
+            if (updated.description.contains("YouTube", ignoreCase = true) && updated.amount != 26.90) {
+                updated = updated.copy(amount = 26.90)
+                changed = true
+            }
+
+            // 11. Compras parceladas antigas de supermercado no Cartão Inter:
+            // Pertencem à fatura do cartão (R$ 380,61), não ao teto novo de mercado
+            if (updated.paymentType == PaymentType.CREDIT_CARD &&
+                (updated.description.contains("ARMACAO", ignoreCase = true) || updated.description.contains("SUPERMERCADOS BH", ignoreCase = true))) {
+                if (updated.category != "Cartão de Crédito" || !updated.includeInBudget) {
+                    updated = updated.copy(
+                        category = "Cartão de Crédito",
+                        categoryIcon = "💳",
+                        categoryColorHex = 0xFFE91E63,
+                        includeInBudget = true
+                    )
+                    changed = true
+                }
+            }
+
+            // 12. Cofrinho se já existir como transferência
+            if (updated.type == TransactionType.TRANSFER && updated.description.contains("Cofrinho", ignoreCase = true)) {
+                if (updated.amount != 1000.0 || !updated.includeInBudget) {
+                    updated = updated.copy(amount = 1000.0, includeInBudget = true)
+                    changed = true
+                }
+            }
+
+            // 13. Gladstoni se já existir
+            if (updated.description.contains("Gladstoni", ignoreCase = true)) {
+                if (updated.amount != 400.0 || updated.type != TransactionType.INCOME) {
+                    updated = updated.copy(amount = 400.0, type = TransactionType.INCOME)
+                    changed = true
+                }
+            }
+
+            updated
+        }.toMutableList()
+
+        // Desodorante: R$ 26,48
         val hasDesodorante = updatedItems.any { it.description.contains("Desodorante", ignoreCase = true) }
         if (!hasDesodorante) {
             val desodoranteItem = TransactionItem(
@@ -739,8 +841,58 @@ class FinanceRepository(private val context: Context) {
             changed = true
         }
 
+        // Gladstoni: R$ 400,00 (Receber)
+        val hasGladstoni = updatedItems.any { it.description.contains("Gladstoni", ignoreCase = true) }
+        if (!hasGladstoni) {
+            val gladstoniItem = TransactionItem(
+                id = "gladstoni_nov_2026",
+                description = "GLADSTONI",
+                amount = 400.0,
+                type = TransactionType.INCOME,
+                category = "Salário / Receita",
+                categoryIcon = "💰",
+                categoryColorHex = 0xFF2E7D32,
+                accountOrCardName = "Conta Inter",
+                paymentType = PaymentType.DEBIT_CARD,
+                tags = listOf("pessoal"),
+                monthYear = "NOVEMBRO 2026",
+                date = "",
+                status = PaymentStatus.TO_RECEIVE,
+                isRecurring = false,
+                includeInBudget = true
+            )
+            updatedItems.add(gladstoniItem)
+            changed = true
+        }
+
+        // Cofrinho: R$ 1.000,00 (Aporte)
+        val hasCofrinho = updatedItems.any { it.type == TransactionType.TRANSFER && it.description.contains("Cofrinho", ignoreCase = true) }
+        if (!hasCofrinho) {
+            val cofrinhoItem = TransactionItem(
+                id = "cofrinho_nov_2026",
+                description = "COFRINHO (Aporte)",
+                amount = 1000.0,
+                type = TransactionType.TRANSFER,
+                category = "Cofrinho & Reserva",
+                categoryIcon = "🐖",
+                categoryColorHex = 0xFF0284C7,
+                accountOrCardName = "Conta Inter",
+                paymentType = PaymentType.PIX,
+                tags = listOf("pessoal"),
+                monthYear = "NOVEMBRO 2026",
+                date = "",
+                status = PaymentStatus.PENDING,
+                isRecurring = false,
+                note = "Cofrinho Inter",
+                includeInBudget = true
+            )
+            updatedItems.add(cofrinhoItem)
+            changed = true
+        }
+
         if (changed) {
             _monthDataMap["NOVEMBRO 2026"] = novData.copy(
+                baseIncome = novBaseIncome,
                 items = updatedItems,
                 lastModified = System.currentTimeMillis()
             )
@@ -1558,6 +1710,18 @@ class FinanceRepository(private val context: Context) {
         saveToDisk()
     }
 
+    private fun isMonthConcluded(monthYear: String): Boolean {
+        val pair: Pair<Int, Int> = MonthHelper.parseMonthYear(monthYear) ?: return false
+        val monthIdx: Int = pair.first
+        val yearVal: Int = pair.second
+        val cal = Calendar.getInstance()
+        val currentYear: Int = cal.get(Calendar.YEAR)
+        val currentMonthIdx: Int = cal.get(Calendar.MONTH) // 0-indexed: Janeiro = 0, Outubro = 9, Novembro = 10
+        if (yearVal < currentYear) return true
+        if (yearVal == currentYear && monthIdx < currentMonthIdx) return true
+        return false
+    }
+
     fun recalculateAllMonths() {
         val monthList = _months.value
         var carriedBalance = 0.0
@@ -1585,7 +1749,10 @@ class FinanceRepository(private val context: Context) {
             val baseInc = monthData.baseIncome
             val currentInc = baseInc + extraInc
 
-            val prevBal = if (isCascadingStarted && !monthKey.contains("OUTUBRO 2026", ignoreCase = true)) carriedBalance else 0.0
+            val prevMonthKey = MonthHelper.addMonths(monthKey, -1)
+            val isPrevConcluded = isMonthConcluded(prevMonthKey)
+
+            val prevBal = if (isCascadingStarted && isPrevConcluded && !monthKey.contains("OUTUBRO 2026", ignoreCase = true)) carriedBalance else 0.0
             val totalInc = currentInc + prevBal
             val remaining = totalInc - totalExp
 
