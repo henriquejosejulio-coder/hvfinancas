@@ -687,7 +687,68 @@ class FinanceRepository(private val context: Context) {
             recalculateAllMonths()
             saveToDisk()
         }
+        reconcileNovemberBudget()
     }
+
+    /**
+     * Ajusta os lançamentos de Novembro 2026 para sincronizar 100% com a planilha de controle:
+     * - Internet: R$ 79,90
+     * - Tim: R$ 55,00
+     * - Desodorante: R$ 26,48
+     */
+    private fun reconcileNovemberBudget() {
+        val novData = _monthDataMap["NOVEMBRO 2026"] ?: return
+        var changed = false
+        val updatedItems = novData.items.toMutableList()
+
+        // 1. Internet: R$ 79,90
+        val internetIdx = updatedItems.indexOfFirst { it.description.contains("Internet", ignoreCase = true) }
+        if (internetIdx != -1 && updatedItems[internetIdx].amount != 79.90) {
+            updatedItems[internetIdx] = updatedItems[internetIdx].copy(amount = 79.90)
+            changed = true
+        }
+
+        // 2. Tim: R$ 55,00
+        val timIdx = updatedItems.indexOfFirst { it.description.equals("Tim", ignoreCase = true) }
+        if (timIdx != -1 && updatedItems[timIdx].amount != 55.00) {
+            updatedItems[timIdx] = updatedItems[timIdx].copy(amount = 55.00)
+            changed = true
+        }
+
+        // 3. Desodorante: R$ 26,48
+        val hasDesodorante = updatedItems.any { it.description.contains("Desodorante", ignoreCase = true) }
+        if (!hasDesodorante) {
+            val desodoranteItem = TransactionItem(
+                id = "desod_nov_2026",
+                description = "Desodorante",
+                amount = 26.48,
+                type = TransactionType.EXPENSE,
+                category = "Cuidados Pessoais",
+                categoryIcon = "💈",
+                categoryColorHex = 0xFF9C27B0,
+                accountOrCardName = "Conta Inter",
+                paymentType = PaymentType.DEBIT_CARD,
+                tags = listOf("pessoal"),
+                monthYear = "NOVEMBRO 2026",
+                date = "",
+                status = PaymentStatus.PENDING,
+                isRecurring = false,
+                includeInBudget = true
+            )
+            updatedItems.add(desodoranteItem)
+            changed = true
+        }
+
+        if (changed) {
+            _monthDataMap["NOVEMBRO 2026"] = novData.copy(
+                items = updatedItems,
+                lastModified = System.currentTimeMillis()
+            )
+            recalculateAllMonths()
+            saveToDisk()
+        }
+    }
+
 
     fun moveCard(fromIndex: Int, toIndex: Int) {
         val list = _cards.value.toMutableList()

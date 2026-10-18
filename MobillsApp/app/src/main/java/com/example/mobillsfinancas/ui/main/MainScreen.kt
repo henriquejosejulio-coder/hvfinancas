@@ -1273,12 +1273,20 @@ fun DashboardTab(
         }
 
         item {
+            val unspentBudgets = categories.filter { it.budgetLimit > 0 }.sumOf { cat ->
+                val spentInCat = (currentMonthData?.items ?: emptyList()).filter { 
+                    it.type == TransactionType.EXPENSE && it.category.equals(cat.name, ignoreCase = true)
+                }.sumOf { it.amount }
+                maxOf(0.0, cat.budgetLimit - spentInCat)
+            }
+
             OverviewCard(
                 totalIncome = totalInc,
                 totalExpense = totalExp,
                 remainingBalance = remaining,
                 previousMonthBalance = currentMonthData?.previousMonthBalance ?: 0.0,
                 currentMonthIncome = currentMonthData?.currentMonthIncome ?: 0.0,
+                unspentBudgets = unspentBudgets,
                 hideValues = hideValues,
                 onAdjustBalance = { onAdjustBalance(0) }
             )
