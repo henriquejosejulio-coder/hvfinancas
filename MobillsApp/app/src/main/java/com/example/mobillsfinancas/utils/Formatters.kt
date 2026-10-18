@@ -1,5 +1,7 @@
 package com.example.mobillsfinancas.utils
 
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.text.NumberFormat
@@ -64,6 +66,46 @@ object Formatters {
 
     fun todayDateString(): String {
         return java.text.SimpleDateFormat("dd/MM/yyyy", ptBrLocale).format(java.util.Date())
+    }
+
+    fun toCurrencyTextFieldValue(amount: Double): TextFieldValue {
+        val formatted = if (amount > 0.0) formatCurrencyPlain(amount) else ""
+        return TextFieldValue(
+            text = formatted,
+            selection = TextRange(formatted.length)
+        )
+    }
+
+    fun toCurrencyTextFieldValue(text: String): TextFieldValue {
+        val formatted = formatCurrencyInput(text)
+        return TextFieldValue(
+            text = formatted,
+            selection = TextRange(formatted.length)
+        )
+    }
+
+    fun updateCurrencyInput(
+        newVal: TextFieldValue,
+        currentVal: TextFieldValue
+    ): TextFieldValue {
+        if (newVal.text == currentVal.text) {
+            // Apenas o cursor ou seleção moveu: mantém o cursor fixo no fim
+            return currentVal.copy(selection = TextRange(currentVal.text.length))
+        }
+        val newText = if (newVal.text.isEmpty()) {
+            ""
+        } else if (newVal.text.length < currentVal.text.length) {
+            // Usuário apertou backspace: remove o último dígito
+            val oldDigits = currentVal.text.filter { it.isDigit() }
+            if (oldDigits.isNotEmpty()) oldDigits.dropLast(1) else ""
+        } else {
+            newVal.text
+        }
+        val formatted = formatCurrencyInput(newText)
+        return TextFieldValue(
+            text = formatted,
+            selection = TextRange(formatted.length)
+        )
     }
 }
 

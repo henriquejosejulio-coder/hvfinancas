@@ -16,8 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -46,17 +48,22 @@ fun AdjustBalanceDialog(
     val remaining = currentMonthData?.remainingBalance ?: 0.0
     val baseIncome = currentMonthData?.baseIncome ?: 0.0
 
-    var realBalanceInput by remember {
-        mutableStateOf(Formatters.formatCurrencyPlain(remaining))
+    var realBalanceTextFieldValue by remember {
+        mutableStateOf(Formatters.toCurrencyTextFieldValue(remaining))
     }
-    var baseIncomeInput by remember {
-        mutableStateOf(Formatters.formatCurrencyPlain(baseIncome))
+    val realBalanceInput = realBalanceTextFieldValue.text
+
+    var baseIncomeTextFieldValue by remember {
+        mutableStateOf(Formatters.toCurrencyTextFieldValue(baseIncome))
     }
+    val baseIncomeInput = baseIncomeTextFieldValue.text
+
     var applyToFutureMonths by remember { mutableStateOf(true) }
 
     // Edição rápida de conta
     var editingAccount by remember { mutableStateOf<AccountItem?>(null) }
-    var accountBalanceInput by remember { mutableStateOf("") }
+    var accountBalanceTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
+    val accountBalanceInput = accountBalanceTextFieldValue.text
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -184,8 +191,8 @@ fun AdjustBalanceDialog(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         OutlinedTextField(
-                            value = baseIncomeInput,
-                            onValueChange = { baseIncomeInput = Formatters.formatCurrencyInput(it) },
+                            value = baseIncomeTextFieldValue,
+                            onValueChange = { baseIncomeTextFieldValue = Formatters.updateCurrencyInput(it, baseIncomeTextFieldValue) },
                             label = { Text("Salário / Receita Base (R$)") },
                             placeholder = { Text("0,00") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -296,8 +303,8 @@ fun AdjustBalanceDialog(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         OutlinedTextField(
-                            value = realBalanceInput,
-                            onValueChange = { realBalanceInput = Formatters.formatCurrencyInput(it) },
+                            value = realBalanceTextFieldValue,
+                            onValueChange = { realBalanceTextFieldValue = Formatters.updateCurrencyInput(it, realBalanceTextFieldValue) },
                             label = { Text("Novo Saldo Real (R$)") },
                             placeholder = { Text("0,00") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -371,7 +378,7 @@ fun AdjustBalanceDialog(
                                         .fillMaxWidth()
                                         .clickable {
                                             editingAccount = acc
-                                            accountBalanceInput = String.format(Locale.US, "%.2f", acc.balance)
+                                            accountBalanceTextFieldValue = Formatters.toCurrencyTextFieldValue(acc.balance)
                                         },
                                     shape = MaterialTheme.shapes.medium,
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
@@ -426,8 +433,8 @@ fun AdjustBalanceDialog(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
-                        value = accountBalanceInput,
-                        onValueChange = { accountBalanceInput = Formatters.formatCurrencyInput(it) },
+                        value = accountBalanceTextFieldValue,
+                        onValueChange = { accountBalanceTextFieldValue = Formatters.updateCurrencyInput(it, accountBalanceTextFieldValue) },
                         label = { Text("Saldo Real (R$)") },
                         placeholder = { Text("0,00") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -43,7 +45,8 @@ fun TransferDialog(
         val targetIdx = accounts.indexOfFirst { !it.includeInOverallBalance }
         mutableIntStateOf(if (targetIdx != -1) targetIdx else if (accounts.size > 1) 1 else 0)
     }
-    var amountText by remember { mutableStateOf("") }
+    var amountTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
+    val amountText = amountTextFieldValue.text
     var isScheduled by remember { mutableStateOf(false) }
     var isRecurring by remember { mutableStateOf(false) }
     var dateText by remember { mutableStateOf<String>(Formatters.todayDateString()) }
@@ -170,8 +173,8 @@ fun TransferDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = Formatters.formatCurrencyInput(it) },
+                    value = amountTextFieldValue,
+                    onValueChange = { amountTextFieldValue = Formatters.updateCurrencyInput(it, amountTextFieldValue) },
                     label = { Text("Valor a Transferir (R$)") },
                     placeholder = { Text("0,00") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

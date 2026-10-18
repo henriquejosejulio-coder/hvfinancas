@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,13 +62,16 @@ fun MobillsTransactionSheet(
     onAddNewCard: (() -> Unit)? = null
 ) {
     var type by remember { mutableStateOf(existingItem?.type ?: initialType) }
-    var amountText by remember {
+    var amountTextFieldValue by remember {
         mutableStateOf(
             if (existingItem != null && existingItem.amount > 0) {
-                Formatters.formatCurrencyPlain(existingItem.amount)
-            } else ""
+                Formatters.toCurrencyTextFieldValue(existingItem.amount)
+            } else {
+                TextFieldValue("", TextRange(0))
+            }
         )
     }
+    val amountText = amountTextFieldValue.text
     var dateText by remember {
         mutableStateOf(
             if (!existingItem?.date.isNullOrBlank()) {
@@ -414,9 +419,9 @@ fun MobillsTransactionSheet(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("R$ ", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                             OutlinedTextField(
-                                value = amountText,
-                                onValueChange = { input ->
-                                    amountText = Formatters.formatCurrencyInput(input)
+                                value = amountTextFieldValue,
+                                onValueChange = { newVal ->
+                                    amountTextFieldValue = Formatters.updateCurrencyInput(newVal, amountTextFieldValue)
                                 },
                                 placeholder = { Text("0,00", color = Color.White.copy(alpha = 0.6f), fontSize = 32.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -443,7 +448,7 @@ fun MobillsTransactionSheet(
                                 modifier = Modifier.clickable {
                                     val digits = amountText.filter { it.isDigit() }
                                     if (digits.isNotBlank()) {
-                                        amountText = Formatters.formatCurrencyInput(digits + "00")
+                                        amountTextFieldValue = Formatters.toCurrencyTextFieldValue(digits + "00")
                                     }
                                 }
                             ) {
@@ -460,7 +465,7 @@ fun MobillsTransactionSheet(
                                 color = Color.White.copy(alpha = 0.22f),
                                 modifier = Modifier.clickable {
                                     val currentVal = Formatters.parseCurrency(amountText)
-                                    amountText = Formatters.formatCurrencyPlain(currentVal + 10.0)
+                                    amountTextFieldValue = Formatters.toCurrencyTextFieldValue(currentVal + 10.0)
                                 }
                             ) {
                                 Text(
@@ -476,7 +481,7 @@ fun MobillsTransactionSheet(
                                 color = Color.White.copy(alpha = 0.22f),
                                 modifier = Modifier.clickable {
                                     val currentVal = Formatters.parseCurrency(amountText)
-                                    amountText = Formatters.formatCurrencyPlain(currentVal + 50.0)
+                                    amountTextFieldValue = Formatters.toCurrencyTextFieldValue(currentVal + 50.0)
                                 }
                             ) {
                                 Text(
@@ -492,7 +497,7 @@ fun MobillsTransactionSheet(
                                 color = Color.White.copy(alpha = 0.22f),
                                 modifier = Modifier.clickable {
                                     val currentVal = Formatters.parseCurrency(amountText)
-                                    amountText = Formatters.formatCurrencyPlain(currentVal + 100.0)
+                                    amountTextFieldValue = Formatters.toCurrencyTextFieldValue(currentVal + 100.0)
                                 }
                             ) {
                                 Text(
@@ -507,7 +512,9 @@ fun MobillsTransactionSheet(
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = Color.White.copy(alpha = 0.22f),
-                                    modifier = Modifier.clickable { amountText = "" }
+                                    modifier = Modifier.clickable {
+                                        amountTextFieldValue = TextFieldValue("", TextRange(0))
+                                    }
                                 ) {
                                     Text(
                                         text = "Limpar ⌫",
@@ -583,12 +590,15 @@ fun MobillsTransactionSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("📅", fontSize = 20.sp)
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("📅", fontSize = 18.sp)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
@@ -598,7 +608,7 @@ fun MobillsTransactionSheet(
                                     )
                                     Text(
                                         text = dateText.ifBlank { "Selecionar data" },
-                                        fontSize = 15.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -610,10 +620,11 @@ fun MobillsTransactionSheet(
                             ) {
                                 Text(
                                     text = "Alterar 🗓️",
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MobillsGreenPrimary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                 )
                             }
                         }
@@ -637,18 +648,25 @@ fun MobillsTransactionSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("💳", fontSize = 20.sp)
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("💳", fontSize = 18.sp)
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
-                                        Text("Fatura de Cobrança / Mês de Pagamento", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            text = "Fatura de Cobrança",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                         Text(
                                             text = targetInvoiceMonth,
-                                            fontSize = 15.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF0284C7)
                                         )
@@ -664,11 +682,12 @@ fun MobillsTransactionSheet(
                                     color = Color(0xFF0284C7).copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = "Mudar Fatura 🗓️",
-                                        fontSize = 12.sp,
+                                        text = "Alterar 🗓️",
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF0284C7),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                     )
                                 }
                             }

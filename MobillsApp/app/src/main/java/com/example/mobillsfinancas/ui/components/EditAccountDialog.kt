@@ -17,8 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -53,7 +55,16 @@ fun EditAccountDialog(
     onDelete: ((String) -> Unit)? = null
 ) {
     var name by remember { mutableStateOf(account?.name ?: "") }
-    var balanceText by remember { mutableStateOf(if (account != null && account.balance != 0.0) Formatters.formatCurrencyPlain(Math.abs(account.balance)) else "") }
+    var balanceTextFieldValue by remember {
+        mutableStateOf(
+            if (account != null && account.balance != 0.0) {
+                Formatters.toCurrencyTextFieldValue(Math.abs(account.balance))
+            } else {
+                TextFieldValue("", TextRange(0))
+            }
+        )
+    }
+    val balanceText = balanceTextFieldValue.text
     var selectedColorHex by remember { mutableStateOf(account?.colorHex ?: 0xFF00A868L) }
     var isDefault by remember { mutableStateOf(account?.isDefault ?: false) }
     var includeInOverallBalance by remember { mutableStateOf(account?.includeInOverallBalance ?: true) }
@@ -142,8 +153,8 @@ fun EditAccountDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
-                    value = balanceText,
-                    onValueChange = { balanceText = Formatters.formatCurrencyInput(it) },
+                    value = balanceTextFieldValue,
+                    onValueChange = { balanceTextFieldValue = Formatters.updateCurrencyInput(it, balanceTextFieldValue) },
                     label = { Text("Saldo Atual (R$)") },
                     placeholder = { Text("0,00") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

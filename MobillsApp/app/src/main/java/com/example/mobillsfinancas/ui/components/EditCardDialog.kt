@@ -18,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,7 +63,16 @@ fun EditCardDialog(
 ) {
     var name by remember { mutableStateOf(card?.name ?: "") }
     var selectedCardType by remember { mutableStateOf(card?.cardType ?: CardType.CREDIT) }
-    var limitText by remember { mutableStateOf(if (card != null && card.limit > 0) Formatters.formatCurrencyPlain(card.limit) else "") }
+    var limitTextFieldValue by remember {
+        mutableStateOf(
+            if (card != null && card.limit > 0) {
+                Formatters.toCurrencyTextFieldValue(card.limit)
+            } else {
+                TextFieldValue("", TextRange(0))
+            }
+        )
+    }
+    val limitText = limitTextFieldValue.text
     var closingDayText by remember { mutableStateOf(card?.closingDay?.toString() ?: "10") }
     var dueDayText by remember { mutableStateOf(card?.dueDay?.toString() ?: "17") }
     var selectedAccountId by remember { mutableStateOf(card?.linkedAccountId ?: "") }
@@ -395,8 +406,8 @@ fun EditCardDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
-                    value = limitText,
-                    onValueChange = { limitText = Formatters.formatCurrencyInput(it) },
+                    value = limitTextFieldValue,
+                    onValueChange = { limitTextFieldValue = Formatters.updateCurrencyInput(it, limitTextFieldValue) },
                     label = {
                         Text(
                             if (selectedCardType.allowsCredit) "Limite Total do Cartão (R$)"

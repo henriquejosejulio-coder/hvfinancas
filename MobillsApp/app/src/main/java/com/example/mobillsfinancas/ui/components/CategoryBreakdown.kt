@@ -13,8 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,7 +42,8 @@ fun CategoryBreakdown(
 ) {
     var selectedCategoryForBudget by remember { mutableStateOf<CategoryItem?>(null) }
     var viewingCategoryDetails by remember { mutableStateOf<CategoryItem?>(null) }
-    var budgetInputText by remember { mutableStateOf("") }
+    var budgetInputTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
+    val budgetInputText = budgetInputTextFieldValue.text
 
     var filterMode by remember { mutableIntStateOf(0) } // 0 = No Teto de Gastos, 1 = Total Geral (Tudo)
 
@@ -421,7 +424,7 @@ fun CategoryBreakdown(
                                     color = MobillsGreenPrimary.copy(alpha = 0.12f),
                                     modifier = Modifier.clickable {
                                         selectedCategoryForBudget = cat
-                                        budgetInputText = if (cat.budgetLimit > 0) Formatters.formatCurrencyPlain(cat.budgetLimit) else ""
+                                        budgetInputTextFieldValue = Formatters.toCurrencyTextFieldValue(cat.budgetLimit)
                                     }
                                 ) {
                                     Text(
@@ -595,7 +598,7 @@ fun CategoryBreakdown(
                                         val targetCat = cat
                                         viewingCategoryDetails = null
                                         selectedCategoryForBudget = targetCat
-                                        budgetInputText = if (targetCat.budgetLimit > 0) Formatters.formatCurrencyPlain(targetCat.budgetLimit) else ""
+                                        budgetInputTextFieldValue = Formatters.toCurrencyTextFieldValue(targetCat.budgetLimit)
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(10.dp),
@@ -808,8 +811,8 @@ fun CategoryBreakdown(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     OutlinedTextField(
-                        value = budgetInputText,
-                        onValueChange = { budgetInputText = Formatters.formatCurrencyInput(it) },
+                        value = budgetInputTextFieldValue,
+                        onValueChange = { budgetInputTextFieldValue = Formatters.updateCurrencyInput(it, budgetInputTextFieldValue) },
                         label = { Text("Teto Mensal") },
                         prefix = { Text("R$ ", fontWeight = FontWeight.Bold, color = MobillsGreenPrimary) },
                         placeholder = { Text("0,00") },
@@ -829,7 +832,7 @@ fun CategoryBreakdown(
                         val quickAmounts = listOf(150.0, 250.0, 500.0, 700.0)
                         quickAmounts.forEach { amount ->
                             FilledTonalButton(
-                                onClick = { budgetInputText = Formatters.formatCurrencyPlain(amount) },
+                                onClick = { budgetInputTextFieldValue = Formatters.toCurrencyTextFieldValue(amount) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                 shape = RoundedCornerShape(8.dp)

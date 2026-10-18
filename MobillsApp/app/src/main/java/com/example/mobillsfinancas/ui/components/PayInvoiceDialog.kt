@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -31,7 +32,10 @@ fun PayInvoiceDialog(
             accounts.find { it.id == card.linkedAccountId } ?: accounts.firstOrNull()
         )
     }
-    var amountText by remember { mutableStateOf(Formatters.formatCurrencyPlain(invoiceAmount)) }
+    var amountTextFieldValue by remember {
+        mutableStateOf(Formatters.toCurrencyTextFieldValue(invoiceAmount))
+    }
+    val amountText = amountTextFieldValue.text
     var expanded by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -112,8 +116,8 @@ fun PayInvoiceDialog(
 
                 // Valor a Pagar
                 OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = Formatters.formatCurrencyInput(it) },
+                    value = amountTextFieldValue,
+                    onValueChange = { amountTextFieldValue = Formatters.updateCurrencyInput(it, amountTextFieldValue) },
                     label = { Text("Valor a Pagar (R$)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
