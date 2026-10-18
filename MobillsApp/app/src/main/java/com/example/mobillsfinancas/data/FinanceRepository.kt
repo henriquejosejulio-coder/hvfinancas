@@ -91,6 +91,7 @@ class FinanceRepository(private val context: Context) {
                 val jsonString = dataFile.readText()
                 parseFullSavedJson(jsonString)
                 cleanupBogusCapturedTransactions()
+                reconcileCardAndAccountNames()
                 return
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -102,6 +103,7 @@ class FinanceRepository(private val context: Context) {
             val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
             parseExcelExtractedJson(assetJson)
             applyOctoberBackwardsPaidStatus()
+            reconcileCardAndAccountNames()
             saveToDisk()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -366,6 +368,10 @@ class FinanceRepository(private val context: Context) {
     }
 
     fun updateAccount(updated: AccountItem) {
+        val oldAcc = _accounts.value.find { it.id == updated.id }
+        val oldName = oldAcc?.name?.trim() ?: ""
+        val newName = updated.name.trim()
+
         _accounts.value = _accounts.value.map {
             if (it.id == updated.id) {
                 updated
@@ -373,6 +379,29 @@ class FinanceRepository(private val context: Context) {
                 if (updated.isDefault) it.copy(isDefault = false) else it
             }
         }
+
+        // Se o nome da conta mudou, sincroniza todos os lançamentos em todos os meses
+        if (oldName.isNotBlank() && !oldName.equals(newName, ignoreCase = true)) {
+            for ((mKey, mData) in _monthDataMap) {
+                var modified = false
+                val updatedItems = mData.items.map { item ->
+                    if (item.accountOrCardName.trim().equals(oldName, ignoreCase = true)) {
+                        modified = true
+                        item.copy(accountOrCardName = newName)
+                    } else {
+                        item
+                    }
+                }
+                if (modified) {
+                    _monthDataMap[mKey] = mData.copy(
+                        items = updatedItems,
+                        lastModified = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+
+        recalculateAllMonths()
         saveToDisk()
     }
 
@@ -487,18 +516,126 @@ class FinanceRepository(private val context: Context) {
     }
 
     fun updateCard(updated: CreditCardItem) {
+        val oldCard = _cards.value.find { it.id == updated.id }
+        val oldName = oldCard?.name?.trim() ?: ""
+        val newName = updated.name.trim()
+
         _cards.value = _cards.value.map { if (it.id == updated.id) updated else it }
+
+        // Se o nome do cartão mudou, sincroniza todos os lançamentos em todos os meses
+        if (oldName.isNotBlank() && !oldName.equals(newName, ignoreCase = true)) {
+            for ((mKey, mData) in _monthDataMap) {
+                var modified = false
+                val updatedItems = mData.items.map { item ->
+                    if (item.accountOrCardName.trim().equals(oldName, ignoreCase = true)) {
+                        modified = true
+                        item.copy(accountOrCardName = newName)
+                    } else {
+                        item
+                    }
+                }
+                if (modified) {
+                    _monthDataMap[mKey] = mData.copy(
+                        items = updatedItems,
+                        lastModified = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+
+        recalculateAllMonths()
         saveToDisk()
     }
 
     fun deleteCard(cardId: String) {
         _cards.value = _cards.value.filter { it.id != cardId }
+        recalculateAllMonths()
         saveToDisk()
     }
 
     fun reorderCards(newCards: List<CreditCardItem>) {
         _cards.value = newCards
+        recalculateAllMonths()
         saveToDisk()
+    }
+
+    /**
+     * Reconcilia lançamentos antigos com cartões ou contas cujos nomes foram alterados
+     * anteriormente, garantindo que faturas, extrato e gráficos fiquem 100% atualizados.
+     */
+    private fun reconcileCardAndAccountNames() {
+        // Mapeamento de nomes originais conhecidos para o ID do cartão
+        val defaultCardIds = mapOf(
+            "cartao inter" to "card_inter",
+            "cartão inter" to "card_inter",
+            "inter" to "card_inter",
+            "cartao will" to "card_will",
+            "cartão will" to "card_will",
+            "will" to "card_will",
+            "will bank" to "card_will",
+            "cartao sofisa" to "card_sofisa",
+            "cartão sofisa" to "card_sofisa",
+            "sofisa" to "card_sofisa",
+            "sofisa direto" to "card_sofisa",
+            "cartao mercado pago" to "card_mp",
+            "cartão mercado pago" to "card_mp",
+            "mercado pago" to "card_mp",
+            "cartao nubank" to "card_nu",
+            "cartão nubank" to "card_nu",
+            "nubank" to "card_nu",
+            "cartao caixa" to "card_caixa",
+            "cartão caixa" to "card_caixa",
+            "caixa" to "card_caixa",
+            "caixa economica" to "card_caixa",
+            "caixa econômica" to "card_caixa"
+        )
+
+        var anyModified = false
+        val currentCardNames = _cards.value.map { it.name.trim().lowercase() }.toSet()
+
+        for ((mKey, mData) in _monthDataMap) {
+            var monthModified = false
+            val updatedItems = mData.items.map { item ->
+                val cleanTarget = item.accountOrCardName.trim().lowercase()
+
+                // Se o lançamento for de cartão de crédito e o nome atual dele não bate com nenhum cartão ativo:
+                if (item.paymentType == PaymentType.CREDIT_CARD && !currentCardNames.contains(cleanTarget)) {
+                    val matchedId = defaultCardIds[cleanTarget]
+                    val targetCard = if (matchedId != null) {
+                        _cards.value.find { it.id == matchedId }
+                    } else {
+                        _cards.value.find { card ->
+                            card.cardType.allowsCredit && (
+                                cleanTarget.contains(card.bankName.trim().lowercase()) ||
+                                card.name.trim().lowercase().contains(cleanTarget)
+                            )
+                        }
+                    }
+
+                    if (targetCard != null && !item.accountOrCardName.equals(targetCard.name, ignoreCase = true)) {
+                        monthModified = true
+                        anyModified = true
+                        item.copy(accountOrCardName = targetCard.name)
+                    } else {
+                        item
+                    }
+                } else {
+                    item
+                }
+            }
+
+            if (monthModified) {
+                _monthDataMap[mKey] = mData.copy(
+                    items = updatedItems,
+                    lastModified = System.currentTimeMillis()
+                )
+            }
+        }
+
+        if (anyModified) {
+            recalculateAllMonths()
+            saveToDisk()
+        }
     }
 
     fun moveCard(fromIndex: Int, toIndex: Int) {

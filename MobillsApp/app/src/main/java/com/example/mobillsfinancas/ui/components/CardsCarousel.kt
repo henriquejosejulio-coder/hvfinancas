@@ -101,7 +101,7 @@ fun CardsCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(cards, key = { "${it.id}_$currentMonth" }) { card ->
+            items(cards, key = { "${it.id}_${it.name}_${it.colorHex}_${it.limit}_${it.cardType}_$currentMonth" }) { card ->
                 val invoice = items.filter { isTransactionForCard(it, card, accounts) }.sumOf { it.amount }
 
                 CreditCardView(

@@ -1334,7 +1334,7 @@ fun DashboardTab(
             }
         }
 
-        items(items, key = { it.id }) { item ->
+        items(items, key = { "${it.id}_${it.accountOrCardName}_${it.amount}_${it.status}_${it.date}" }) { item ->
             TransactionItemView(
                 item = item,
                 hideValues = hideValues,
@@ -1510,7 +1510,7 @@ fun TransactionsTab(
                     }
                 }
             } else {
-                items(filteredItems, key = { it.id }) { item ->
+                items(filteredItems, key = { "${it.id}_${it.accountOrCardName}_${it.amount}_${it.status}_${it.date}" }) { item ->
                     TransactionItemView(
                         item = item,
                         hideValues = hideValues,
@@ -1705,7 +1705,7 @@ fun CardsTab(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        items(cards, key = { "${it.id}_$currentMonth" }) { card ->
+        items(cards, key = { "${it.id}_${it.name}_${it.colorHex}_${it.limit}_${it.cardType}_$currentMonth" }) { card ->
             val cardItems = items.filter { isTransactionForCard(it, card, accounts) }
             val invoice = cardItems.sumOf { it.amount }
             val availableLimit = (card.limit - invoice).coerceAtLeast(0.0)

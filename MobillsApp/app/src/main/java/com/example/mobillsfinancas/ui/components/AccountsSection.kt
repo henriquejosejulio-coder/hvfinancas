@@ -123,7 +123,7 @@ fun AccountsSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(accounts, key = { it.id }) { acc ->
+            items(accounts, key = { "${it.id}_${it.name}_${it.balance}_${it.colorHex}" }) { acc ->
                 Card(
                     modifier = Modifier
                         .width(190.dp)
