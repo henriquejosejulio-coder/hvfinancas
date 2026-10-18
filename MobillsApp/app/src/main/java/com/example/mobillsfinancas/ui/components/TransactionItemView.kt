@@ -185,8 +185,16 @@ fun TransactionItemView(
 
                 // Valor e Status
                 Column(horizontalAlignment = Alignment.End) {
-                    val prefix = if (item.type == TransactionType.INCOME) "+ " else "- "
-                    val valueColor = if (item.type == TransactionType.INCOME) IncomeGreen else ExpenseRed
+                    val prefix = when (item.type) {
+                        TransactionType.INCOME -> "+ "
+                        TransactionType.EXPENSE -> "- "
+                        TransactionType.TRANSFER -> "⇄ "
+                    }
+                    val valueColor = when (item.type) {
+                        TransactionType.INCOME -> IncomeGreen
+                        TransactionType.EXPENSE -> ExpenseRed
+                        TransactionType.TRANSFER -> if (item.includeInBudget) Color(0xFF0284C7) else MobillsGreenPrimary
+                    }
 
                     Text(
                         text = prefix + Formatters.formatMoney(item.amount, hideValues),
@@ -197,18 +205,25 @@ fun TransactionItemView(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    val (statusText, statusBg, statusColor) = when (item.status) {
-                        PaymentStatus.PAID -> if (item.type == TransactionType.INCOME) {
+                    val (statusText, statusBg, statusColor) = when {
+                        item.type == TransactionType.TRANSFER -> {
+                            if (item.status == PaymentStatus.PAID) {
+                                Triple("CONCLUÍDO", MobillsGreenPrimary.copy(alpha = 0.15f), MobillsGreenPrimary)
+                            } else {
+                                Triple("AGENDADO (✓)", Color(0xFFFF9800).copy(alpha = 0.2f), Color(0xFFE65100))
+                            }
+                        }
+                        item.status == PaymentStatus.PAID -> if (item.type == TransactionType.INCOME) {
                             Triple("RECEBIDO", IncomeGreen.copy(alpha = 0.15f), IncomeGreen)
                         } else {
                             Triple("PAGO", IncomeGreen.copy(alpha = 0.15f), IncomeGreen)
                         }
-                        PaymentStatus.PENDING -> if (item.type == TransactionType.INCOME) {
+                        item.status == PaymentStatus.PENDING -> if (item.type == TransactionType.INCOME) {
                             Triple("A RECEBER", Color(0xFF0288D1).copy(alpha = 0.15f), Color(0xFF0288D1))
                         } else {
                             Triple("PENDENTE", ExpenseRed.copy(alpha = 0.15f), ExpenseRed)
                         }
-                        PaymentStatus.TO_RECEIVE -> Triple("A RECEBER", Color(0xFF0288D1).copy(alpha = 0.15f), Color(0xFF0288D1))
+                        else -> Triple("A RECEBER", Color(0xFF0288D1).copy(alpha = 0.15f), Color(0xFF0288D1))
                     }
 
                     Surface(

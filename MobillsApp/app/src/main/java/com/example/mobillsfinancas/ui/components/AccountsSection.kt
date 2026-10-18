@@ -31,6 +31,7 @@ import com.example.mobillsfinancas.utils.Formatters
 fun AccountsSection(
     accounts: List<AccountItem>,
     hideValues: Boolean,
+    pendingCofrinhoTransfers: Double = 0.0,
     onEditAccount: (AccountItem) -> Unit,
     onAddAccount: () -> Unit,
     onTransfer: () -> Unit,
@@ -57,26 +58,37 @@ fun AccountsSection(
                 )
                 val availableTotal = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
                 val reservesTotal = accounts.filter { !it.includeInOverallBalance }.sumOf { it.balance }
+                val effectiveAvailable = (availableTotal - pendingCofrinhoTransfers).coerceAtLeast(0.0)
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Saldo Livre: ${Formatters.formatMoney(availableTotal, hideValues)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MobillsGreenPrimary
-                    )
-                    if (reservesTotal > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        val reservesMonthlyYield = accounts.filter { !it.includeInOverallBalance }.sumOf { it.calculateMonthlyYield() }
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = if (reservesMonthlyYield > 0) {
-                                "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)} (+~${Formatters.formatMoney(reservesMonthlyYield, hideValues)}/mês)"
-                            } else {
-                                "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)}"
-                            },
+                            text = "Saldo Livre: ${Formatters.formatMoney(effectiveAvailable, hideValues)}",
                             style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MobillsGreenPrimary
+                        )
+                        if (reservesTotal > 0) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val reservesMonthlyYield = accounts.filter { !it.includeInOverallBalance }.sumOf { it.calculateMonthlyYield() }
+                            Text(
+                                text = if (reservesMonthlyYield > 0) {
+                                    "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)} (+~${Formatters.formatMoney(reservesMonthlyYield, hideValues)}/mês)"
+                                } else {
+                                    "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF0284C7)
+                            )
+                        }
+                    }
+                    if (pendingCofrinhoTransfers > 0) {
+                        Text(
+                            text = "(${Formatters.formatMoney(availableTotal, hideValues)} em conta - ${Formatters.formatMoney(pendingCofrinhoTransfers, hideValues)} reservado p/ cofrinho)",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF0284C7)
+                            color = Color(0xFFE65100)
                         )
                     }
                 }

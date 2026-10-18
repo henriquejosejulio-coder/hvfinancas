@@ -11,6 +11,7 @@ import java.util.UUID
 import com.example.mobillsfinancas.utils.MonthHelper
 import com.example.mobillsfinancas.utils.BankRegistry
 import com.example.mobillsfinancas.utils.SupportedBank
+import com.example.mobillsfinancas.utils.Formatters
 
 class FinanceRepository(private val context: Context) {
 
@@ -482,15 +483,67 @@ class FinanceRepository(private val context: Context) {
         return Pair(newCard, true)
     }
 
-    fun transfer(fromAccountId: String, toAccountId: String, amount: Double) {
-        val currentList = _accounts.value.map {
-            when (it.id) {
-                fromAccountId -> it.copy(balance = it.balance - amount)
-                toAccountId -> it.copy(balance = it.balance + amount)
-                else -> it
+    private fun extractNoteParam(note: String, key: String): String? {
+        val parts = note.split("|")
+        for (p in parts) {
+            val kv = p.split(":")
+            if (kv.size == 2 && kv[0].trim() == key) {
+                return kv[1].trim()
             }
         }
-        _accounts.value = currentList
+        return null
+    }
+
+    fun transfer(
+        fromAccountId: String,
+        toAccountId: String,
+        amount: Double,
+        isScheduled: Boolean = false,
+        date: String = ""
+    ) {
+        val fromAcc = _accounts.value.find { it.id == fromAccountId } ?: return
+        val toAcc = _accounts.value.find { it.id == toAccountId } ?: return
+        val currentMonth = _selectedMonth.value
+        val txDate = if (date.isNotBlank()) date else Formatters.todayDateString()
+
+        if (!isScheduled) {
+            val currentList = _accounts.value.map {
+                when (it.id) {
+                    fromAccountId -> it.copy(balance = it.balance - amount)
+                    toAccountId -> it.copy(balance = it.balance + amount)
+                    else -> it
+                }
+            }
+            _accounts.value = currentList
+        }
+
+        val isToReserve = !toAcc.includeInOverallBalance
+        val txItem = TransactionItem(
+            id = "trf_" + UUID.randomUUID().toString(),
+            description = if (isScheduled) "Agendado: ${fromAcc.name} ➔ ${toAcc.name}" else "Transferência: ${fromAcc.name} ➔ ${toAcc.name}",
+            amount = amount,
+            type = TransactionType.TRANSFER,
+            category = if (isToReserve) "Cofrinho & Reserva" else "Transferência",
+            categoryIcon = if (isToReserve) "🐖" else "⇄",
+            categoryColorHex = if (isToReserve) 0xFF0284C7 else 0xFF00A868,
+            accountOrCardName = fromAcc.name,
+            paymentType = PaymentType.PIX,
+            monthYear = currentMonth,
+            date = txDate,
+            status = if (isScheduled) PaymentStatus.PENDING else PaymentStatus.PAID,
+            note = "fromAccountId:${fromAcc.id}|toAccountId:${toAcc.id}",
+            includeInBudget = isToReserve
+        )
+
+        val currentMonthData = _monthDataMap[currentMonth]
+        if (currentMonthData != null) {
+            val updatedItems = listOf(txItem) + currentMonthData.items
+            _monthDataMap[currentMonth] = currentMonthData.copy(
+                items = updatedItems,
+                lastModified = System.currentTimeMillis()
+            )
+            recalculateAllMonths()
+        }
         saveToDisk()
     }
 
@@ -1124,21 +1177,45 @@ class FinanceRepository(private val context: Context) {
         val wasPaid = (item.status == PaymentStatus.PAID)
         val isNowPaid = (newStatus == PaymentStatus.PAID)
         if (wasPaid != isNowPaid) {
-            val account = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
-            if (account != null) {
-                if (item.type == TransactionType.INCOME) {
+            if (item.type == TransactionType.TRANSFER) {
+                val fromId = extractNoteParam(item.note, "fromAccountId")
+                val toId = extractNoteParam(item.note, "toAccountId")
+                val fromAcc = _accounts.value.find { it.id == fromId }
+                val toAcc = _accounts.value.find { it.id == toId }
+                if (fromAcc != null && toAcc != null) {
                     val delta = if (isNowPaid) item.amount else -item.amount
-                    updateAccount(account.copy(balance = account.balance + delta))
-                } else if (item.type == TransactionType.EXPENSE &&
-                    (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH)) {
-                    val delta = if (isNowPaid) -item.amount else item.amount
-                    updateAccount(account.copy(balance = account.balance + delta))
+                    val updatedFrom = fromAcc.copy(balance = fromAcc.balance - delta)
+                    val updatedTo = toAcc.copy(balance = toAcc.balance + delta)
+                    _accounts.value = _accounts.value.map {
+                        when (it.id) {
+                            updatedFrom.id -> updatedFrom
+                            updatedTo.id -> updatedTo
+                            else -> it
+                        }
+                    }
+                }
+            } else {
+                val account = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+                if (account != null) {
+                    if (item.type == TransactionType.INCOME) {
+                        val delta = if (isNowPaid) item.amount else -item.amount
+                        updateAccount(account.copy(balance = account.balance + delta))
+                    } else if (item.type == TransactionType.EXPENSE &&
+                        (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH)) {
+                        val delta = if (isNowPaid) -item.amount else item.amount
+                        updateAccount(account.copy(balance = account.balance + delta))
+                    }
                 }
             }
         }
 
         val updatedList = current.items.map {
-            if (it.id == transactionId) it.copy(status = newStatus) else it
+            if (it.id == transactionId) {
+                val newDesc = if (it.type == TransactionType.TRANSFER) {
+                    if (isNowPaid) it.description.replace("Agendado:", "Transferência:") else it.description.replace("Transferência:", "Agendado:")
+                } else it.description
+                it.copy(status = newStatus, description = newDesc)
+            } else it
         }
 
         val updatedMonth = current.copy(
@@ -1159,13 +1236,31 @@ class FinanceRepository(private val context: Context) {
 
         val itemToDelete = _monthDataMap[targetMonth]?.items?.find { it.id == transactionId }
         if (itemToDelete != null && itemToDelete.status == PaymentStatus.PAID) {
-            val account = findMatchingAccount(itemToDelete.accountOrCardName, fallbackToDefault = false)
-            if (account != null) {
-                if (itemToDelete.type == TransactionType.INCOME) {
-                    updateAccount(account.copy(balance = account.balance - itemToDelete.amount))
-                } else if (itemToDelete.type == TransactionType.EXPENSE &&
-                    (itemToDelete.paymentType == PaymentType.DEBIT_CARD || itemToDelete.paymentType == PaymentType.PIX || itemToDelete.paymentType == PaymentType.CASH)) {
-                    updateAccount(account.copy(balance = account.balance + itemToDelete.amount))
+            if (itemToDelete.type == TransactionType.TRANSFER) {
+                val fromId = extractNoteParam(itemToDelete.note, "fromAccountId")
+                val toId = extractNoteParam(itemToDelete.note, "toAccountId")
+                val fromAcc = _accounts.value.find { it.id == fromId }
+                val toAcc = _accounts.value.find { it.id == toId }
+                if (fromAcc != null && toAcc != null) {
+                    val updatedFrom = fromAcc.copy(balance = fromAcc.balance + itemToDelete.amount)
+                    val updatedTo = toAcc.copy(balance = toAcc.balance - itemToDelete.amount)
+                    _accounts.value = _accounts.value.map {
+                        when (it.id) {
+                            updatedFrom.id -> updatedFrom
+                            updatedTo.id -> updatedTo
+                            else -> it
+                        }
+                    }
+                }
+            } else {
+                val account = findMatchingAccount(itemToDelete.accountOrCardName, fallbackToDefault = false)
+                if (account != null) {
+                    if (itemToDelete.type == TransactionType.INCOME) {
+                        updateAccount(account.copy(balance = account.balance - itemToDelete.amount))
+                    } else if (itemToDelete.type == TransactionType.EXPENSE &&
+                        (itemToDelete.paymentType == PaymentType.DEBIT_CARD || itemToDelete.paymentType == PaymentType.PIX || itemToDelete.paymentType == PaymentType.CASH)) {
+                        updateAccount(account.copy(balance = account.balance + itemToDelete.amount))
+                    }
                 }
             }
         }
@@ -1416,6 +1511,8 @@ class FinanceRepository(private val context: Context) {
                     totalExp += item.amount
                 } else if (item.type == TransactionType.INCOME) {
                     extraInc += item.amount
+                } else if (item.type == TransactionType.TRANSFER && item.includeInBudget) {
+                    totalExp += item.amount
                 }
             }
 

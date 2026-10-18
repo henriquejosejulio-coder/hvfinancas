@@ -179,8 +179,12 @@ fun MainScreen(
                                 }
                             }
                             val totalBalance = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
+                            val pendingCofrinhoTransfers = currentMonthData?.items?.filter {
+                                it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
+                            }?.sumOf { it.amount } ?: 0.0
+                            val effectiveTotalBalance = (totalBalance - pendingCofrinhoTransfers).coerceAtLeast(0.0)
                             Text(
-                                text = "Saldo: ${Formatters.formatMoney(totalBalance, viewModel.hideValues)}",
+                                text = "Saldo: ${Formatters.formatMoney(effectiveTotalBalance, viewModel.hideValues)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -514,8 +518,8 @@ fun MainScreen(
                 TransferDialog(
                     accounts = accounts,
                     onDismiss = { showTransferDialog = false },
-                    onTransfer = { fromId, toId, amt ->
-                        viewModel.transfer(fromId, toId, amt)
+                    onTransfer = { fromId, toId, amt, isScheduled, date ->
+                        viewModel.transfer(fromId, toId, amt, isScheduled, date)
                         showTransferDialog = false
                     }
                 )
@@ -1282,9 +1286,14 @@ fun DashboardTab(
 
         // Seção Bancos & Contas (Controle de Saldo estilo Mobills)
         item {
+            val pendingCofrinhoTransfers = currentMonthData?.items?.filter {
+                it.type == TransactionType.TRANSFER && it.status == PaymentStatus.PENDING && it.includeInBudget
+            }?.sumOf { it.amount } ?: 0.0
+
             AccountsSection(
                 accounts = accounts,
                 hideValues = hideValues,
+                pendingCofrinhoTransfers = pendingCofrinhoTransfers,
                 onEditAccount = onEditAccount,
                 onAddAccount = onAddAccount,
                 onTransfer = onTransfer,
@@ -2040,36 +2049,48 @@ fun CardsTab(
                                     Column(
                                         horizontalAlignment = Alignment.End
                                     ) {
+                                        val isTransfer = item.type == TransactionType.TRANSFER
+                                        val prefix = when (item.type) {
+                                            TransactionType.INCOME -> "+ "
+                                            TransactionType.EXPENSE -> "- "
+                                            TransactionType.TRANSFER -> "⇄ "
+                                        }
+                                        val valueColor = when (item.type) {
+                                            TransactionType.INCOME -> IncomeGreen
+                                            TransactionType.EXPENSE -> ExpenseRed
+                                            TransactionType.TRANSFER -> if (item.includeInBudget) Color(0xFF0284C7) else MobillsGreenPrimary
+                                        }
                                         Text(
-                                            text = Formatters.formatMoney(item.amount, hideValues),
+                                            text = prefix + Formatters.formatMoney(item.amount, hideValues),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (item.type == TransactionType.INCOME) IncomeGreen else ExpenseRed
+                                            color = valueColor
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
+                                        val (statusLabel, statusColor, statusBg) = when {
+                                            isTransfer -> {
+                                                if (item.status == PaymentStatus.PAID) {
+                                                    Triple("CONCLUÍDO", IncomeGreen, IncomeGreen.copy(alpha = 0.15f))
+                                                } else {
+                                                    Triple("AGENDADO (✓)", Color(0xFFE65100), Color(0xFFFF9800).copy(alpha = 0.2f))
+                                                }
+                                            }
+                                            item.status == PaymentStatus.PAID -> Triple("PAGO", IncomeGreen, IncomeGreen.copy(alpha = 0.15f))
+                                            item.status == PaymentStatus.PENDING -> Triple("PENDENTE", ExpenseRed, ExpenseRed.copy(alpha = 0.15f))
+                                            item.status == PaymentStatus.TO_RECEIVE -> Triple("A RECEBER", Color(0xFF0288D1), Color(0xFF0288D1).copy(alpha = 0.15f))
+                                            else -> Triple("PENDENTE", ExpenseRed, ExpenseRed.copy(alpha = 0.15f))
+                                        }
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = when (item.status) {
-                                                PaymentStatus.PAID -> IncomeGreen.copy(alpha = 0.15f)
-                                                PaymentStatus.PENDING -> ExpenseRed.copy(alpha = 0.15f)
-                                                PaymentStatus.TO_RECEIVE -> Color(0xFF0288D1).copy(alpha = 0.15f)
-                                            }
+                                            color = statusBg
                                         ) {
                                             Text(
-                                                text = when (item.status) {
-                                                    PaymentStatus.PAID -> "PAGO"
-                                                    PaymentStatus.PENDING -> "PENDENTE"
-                                                    PaymentStatus.TO_RECEIVE -> "A RECEBER"
-                                                },
+                                                text = statusLabel,
                                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 9.sp,
-                                                color = when (item.status) {
-                                                    PaymentStatus.PAID -> IncomeGreen
-                                                    PaymentStatus.PENDING -> ExpenseRed
-                                                    PaymentStatus.TO_RECEIVE -> Color(0xFF0288D1)
-                                                }
+                                                color = statusColor
                                             )
                                         }
                                     }

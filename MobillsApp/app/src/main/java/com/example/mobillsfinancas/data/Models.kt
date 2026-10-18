@@ -115,8 +115,10 @@ data class AccountItem(
     }
 
     fun calculateDailyYield(annualCdiRate: Double = 10.65): Double {
-        val monthly = calculateMonthlyYield(annualCdiRate)
-        return if (monthly > 0) monthly / 21.0 else 0.0 // média de 21 dias úteis
+        if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
+        val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
+        val dailyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 252.0) - 1.0
+        return balance * dailyRate
     }
 }
 

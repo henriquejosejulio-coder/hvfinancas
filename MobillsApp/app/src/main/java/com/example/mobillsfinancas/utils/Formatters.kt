@@ -61,5 +61,9 @@ object Formatters {
             clean.toDoubleOrNull() ?: 0.0
         }
     }
+
+    fun todayDateString(): String {
+        return java.text.SimpleDateFormat("dd/MM/yyyy", ptBrLocale).format(java.util.Date())
+    }
 }
 

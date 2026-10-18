@@ -130,8 +130,14 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         repository.reorderCards(newCards)
     }
 
-    fun transfer(fromId: String, toId: String, amount: Double) {
-        repository.transfer(fromId, toId, amount)
+    fun transfer(
+        fromId: String,
+        toId: String,
+        amount: Double,
+        isScheduled: Boolean = false,
+        date: String = ""
+    ) {
+        repository.transfer(fromId, toId, amount, isScheduled, date)
     }
 
     // Categorias e Tags
