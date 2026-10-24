@@ -1,6 +1,7 @@
 package com.example.mobillsfinancas.data
 
 import android.content.Context
+import android.os.Environment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,52 +85,158 @@ class FinanceRepository(private val context: Context) {
         loadData()
     }
 
+    private fun countTransactionItems(jsonString: String): Int {
+        return try {
+            val trimmed = jsonString.trim()
+            val monthsArr = if (trimmed.startsWith("[")) {
+                JSONArray(trimmed)
+            } else {
+                val obj = JSONObject(trimmed)
+                obj.optJSONArray("months") ?: return 0
+            }
+            var count = 0
+            for (i in 0 until monthsArr.length()) {
+                val mObj = monthsArr.optJSONObject(i) ?: continue
+                val itemsArr = mObj.optJSONArray("itens") ?: mObj.optJSONArray("items") ?: continue
+                count += itemsArr.length()
+            }
+            count
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    /**
+     * Procura de forma segura por qualquer arquivo de dados preexistente no dispositivo,
+     * priorizando arquivos que contenham lançamentos reais (itens de transação).
+     */
+    private fun findBestDataFile(): File? {
+        val candidateLocations = listOf(
+            File(context.filesDir, "hvfinancas_v6.json"),
+            File(context.filesDir, "hvfinancas_emergency_recovery.json"),
+            File(context.filesDir, "hvfinancas_v6_backup.json"),
+            File(context.filesDir, "hvfinancas_auto_backup.json"),
+            File(context.filesDir, "hvfinancas_v5.json"),
+            File(context.filesDir, "hvfinancas_v4.json"),
+            File(context.filesDir, "hvfinancas_v3.json"),
+            File(context.filesDir, "hvfinancas.json"),
+            File(context.filesDir, "financas_data.json")
+        )
+
+        val externalCandidates = mutableListOf<File>()
+        try {
+            val extDir = context.getExternalFilesDir(null)
+            if (extDir != null) {
+                externalCandidates.add(File(extDir, "hvfinancas_v6_backup.json"))
+                externalCandidates.add(File(extDir, "hvfinancas_auto_backup.json"))
+                externalCandidates.add(File(extDir, "hvfinancas_emergency_recovery.json"))
+                externalCandidates.add(File(extDir, "hvfinancas_backup.json"))
+                externalCandidates.add(File(extDir, "hvfinancas_v6.json"))
+                externalCandidates.add(File(extDir, "hvfinancas.json"))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (downloadsDir != null && downloadsDir.exists()) {
+                externalCandidates.add(File(downloadsDir, "hvfinancas_backup.json"))
+                externalCandidates.add(File(downloadsDir, "hvfinancas_v6_backup.json"))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            val cacheBackup = File(context.cacheDir, "hvfinancas_backup.json")
+            if (cacheBackup.exists()) {
+                externalCandidates.add(cacheBackup)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val allCandidates = (candidateLocations + externalCandidates).filter { it.exists() && it.isFile && it.length() > 50 }
+
+        if (allCandidates.isEmpty()) {
+            return null
+        }
+
+        // Avalia candidatos por contagem de itens de transação
+        var bestCandidate: File? = null
+        var maxItems = -1
+        var bestTimestamp = 0L
+
+        for (candidate in allCandidates) {
+            try {
+                val text = candidate.readText()
+                if (text.isBlank() || text.length <= 50) continue
+                val itemsCount = countTransactionItems(text)
+                val lastMod = candidate.lastModified()
+
+                if (itemsCount > maxItems) {
+                    maxItems = itemsCount
+                    bestTimestamp = lastMod
+                    bestCandidate = candidate
+                } else if (itemsCount == maxItems && lastMod > bestTimestamp) {
+                    bestTimestamp = lastMod
+                    bestCandidate = candidate
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        return bestCandidate ?: allCandidates.firstOrNull()
+    }
+
     private fun loadData() {
         initDefaultCategoriesAndTags()
         initDefaultCardsAndAccounts()
 
-        if (dataFile.exists()) {
+        val existingFile = findBestDataFile()
+        if (existingFile != null) {
             try {
-                val jsonString = dataFile.readText()
+                val jsonString = existingFile.readText()
                 if (jsonString.isNotBlank() && jsonString.length > 50) {
-                    parseFullSavedJson(jsonString)
-                    cleanupBogusCapturedTransactions()
-                    reconcileCardAndAccountNames()
-                    checkAndApplyAutoYield()
-                    return
+                    // 1. Cria imediatamente um clone de emergência intocado
+                    try {
+                        val emergencyFile = File(context.filesDir, "hvfinancas_emergency_recovery.json")
+                        existingFile.copyTo(emergencyFile, overwrite = true)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // 2. Faz o parse seguro à prova de falhas
+                    val parseOk = parseFullSavedJsonSafe(jsonString)
+                    if (parseOk) {
+                        cleanupBogusCapturedTransactions()
+                        reconcileCardAndAccountNames()
+                        checkAndApplyAutoYield()
+
+                        // 3. Garante que se o arquivo escolhido era um backup/versão anterior,
+                        // o arquivo principal ativo e os espelhos fiquem sincronizados
+                        saveToDisk()
+                        return
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            // Se encontramos um arquivo do usuário no disco, NUNCA sobrescrevemos com dados em branco de asset!
+            android.util.Log.w("FinanceRepository", "Arquivo preexistente encontrado mas ocorreu falha. Abortando sobrescrita com dados vazios para proteger o usuário.")
+            return
         }
 
-        // Tenta carregar do backup de segurança se o dataFile principal falhou
-        val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
-        if (backupFile.exists()) {
-            try {
-                val bkpString = backupFile.readText()
-                if (bkpString.isNotBlank() && bkpString.length > 50) {
-                    parseFullSavedJson(bkpString)
-                    cleanupBogusCapturedTransactions()
-                    reconcileCardAndAccountNames()
-                    checkAndApplyAutoYield()
-                    saveToDisk()
-                    return
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // Se for primeira vez (ou instalaçao limpa), carrega o JSON embutido com os dados completos
+        // Se for primeira vez absoluta (instalação limpa num aparelho novo sem nenhum dado anterior)
         try {
             val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
             if (assetJson.trim().startsWith("{")) {
-                parseFullSavedJson(assetJson)
+                parseFullSavedJsonSafe(assetJson)
             } else {
                 parseExcelExtractedJson(assetJson)
             }
-            applyOctoberBackwardsPaidStatus()
             reconcileCardAndAccountNames()
             saveToDisk()
         } catch (e: Exception) {
@@ -160,7 +267,6 @@ class FinanceRepository(private val context: Context) {
             TagItem(id = "tag_trab", name = "trabalho", colorHex = 0xFF0288D1),
             TagItem(id = "tag_casa", name = "casa", colorHex = 0xFF3F51B5),
             TagItem(id = "tag_carr", name = "carro", colorHex = 0xFFFF9800),
-            TagItem(id = "tag_alex", name = "alex", colorHex = 0xFF9C27B0),
             TagItem(id = "tag_viag", name = "viagem", colorHex = 0xFFE91E63)
         )
     }
@@ -207,13 +313,6 @@ class FinanceRepository(private val context: Context) {
             for (j in 0 until itemsArray.length()) {
                 val itemObj = itemsArray.getJSONObject(j)
                 val desc = itemObj.optString("descricao", "").trim()
-                val upperDesc = desc.uppercase()
-                if ((upperDesc.contains("FUNDO") && upperDesc.contains("EMERG")) ||
-                    (upperDesc.contains("GASTO") && upperDesc.contains("ADICIONA")) ||
-                    (upperDesc == "MERCADO" && itemObj.optDouble("valor", 0.0) == 700.0)
-                ) {
-                    continue
-                }
                 val valor = itemObj.optDouble("valor", 0.0)
                 val statusStr = itemObj.optString("status", "PENDENTE").uppercase()
                 val catName = itemObj.optString("categoria", "Outros")
@@ -239,7 +338,6 @@ class FinanceRepository(private val context: Context) {
 
                 // Extrai tag simples se aplicável
                 val itemTags = mutableListOf<String>()
-                if (desc.contains("ALEX", ignoreCase = true)) itemTags.add("alex")
                 if (catName.contains("Moradia", ignoreCase = true)) itemTags.add("casa")
                 if (catName.contains("Transporte", ignoreCase = true)) itemTags.add("carro")
 
@@ -294,7 +392,6 @@ class FinanceRepository(private val context: Context) {
         var modified = false
         for ((mKey, mData) in _monthDataMap) {
             val invalidItems = mData.items.filter { item ->
-                (item.description.equals("novembro", ignoreCase = true) && item.amount in 447.0..450.0) ||
                 item.description.contains("negada", ignoreCase = true) ||
                 item.description.contains("recusada", ignoreCase = true) ||
                 item.description.contains("revisada", ignoreCase = true) ||
@@ -311,7 +408,6 @@ class FinanceRepository(private val context: Context) {
             saveToDisk()
         }
         _recentCapturedTransactions.value = _recentCapturedTransactions.value.filterNot {
-            (it.description.equals("novembro", ignoreCase = true) && it.amount in 447.0..450.0) ||
             it.description.contains("negada", ignoreCase = true) ||
             it.description.contains("recusada", ignoreCase = true) ||
             it.description.contains("revisada", ignoreCase = true) ||
@@ -845,209 +941,7 @@ class FinanceRepository(private val context: Context) {
             recalculateAllMonths()
             saveToDisk()
         }
-        reconcileNovemberBudget()
     }
-
-    /**
-     * Ajusta os lançamentos de Novembro 2026 para sincronizar 100% com a planilha de controle:
-     * - Internet: R$ 79,90
-     * - Tim: R$ 55,00
-     * - Desodorante: R$ 26,48
-     */
-    private fun reconcileNovemberBudget() {
-        // Ajusta categorias para garantir a existência de Mercado e configurar tetos padrão
-        val hasMercadoCat = _categories.value.any { it.id == "cat_merc" || it.name.equals("Mercado", ignoreCase = true) }
-        var catList = _categories.value.toMutableList()
-        if (!hasMercadoCat) {
-            catList.add(0, CategoryItem(id = "cat_merc", name = "Mercado", iconEmoji = "🛒", colorHex = 0xFFFF9800, budgetLimit = 700.0, reserveInBudget = true))
-        }
-        catList = catList.map {
-            if (it.name.equals("Mercado", ignoreCase = true)) {
-                it.copy(budgetLimit = 700.0, reserveInBudget = true)
-            } else if (it.name.equals("Alimentação", ignoreCase = true) && it.budgetLimit == 700.0) {
-                it.copy(budgetLimit = 0.0, reserveInBudget = false)
-            } else if (it.name.equals("Transporte", ignoreCase = true) && it.budgetLimit == 250.0) {
-                it.copy(budgetLimit = 0.0, reserveInBudget = false)
-            } else {
-                it
-            }
-        }.toMutableList()
-        if (catList != _categories.value) {
-            _categories.value = catList
-        }
-
-        val novData = _monthDataMap["NOVEMBRO 2026"] ?: return
-        var changed = false
-        var novBaseIncome = novData.baseIncome
-        if (novBaseIncome <= 0.0) {
-            novBaseIncome = 3300.0
-            changed = true
-        }
-
-        // Remove itens que não existem ou estão em branco na planilha atualizada:
-        // - Desodorante: em branco (R$ 0,00)
-        // - YouTube Premium avulso: em branco ("lembrar vem inter")
-        // - Parcela Growth de 17,65 no Cartão Inter (para a fatura fechar em R$ 362,96)
-        val filteredList = novData.items.filterNot {
-            it.description.contains("Desodorante", ignoreCase = true) ||
-            it.description.contains("GROWTHSUPPLEMENTS", ignoreCase = true) ||
-            (it.description.contains("YouTube", ignoreCase = true) && it.paymentType != PaymentType.CREDIT_CARD)
-        }
-        if (filteredList.size != novData.items.size) {
-            changed = true
-        }
-
-        val updatedItems = filteredList.map { item ->
-            var updated = item
-
-            // 1. Internet: R$ 79,90
-            if (updated.description.contains("Internet", ignoreCase = true) && updated.amount != 79.90) {
-                updated = updated.copy(amount = 79.90)
-                changed = true
-            }
-
-            // 2. Tim: R$ 55,00
-            if (updated.description.equals("Tim", ignoreCase = true) && updated.amount != 55.00) {
-                updated = updated.copy(amount = 55.00)
-                changed = true
-            }
-
-            // 3. Aluguel: R$ 500,00
-            if (updated.description.contains("Aluguel", ignoreCase = true) && updated.amount != 500.00) {
-                updated = updated.copy(amount = 500.00)
-                changed = true
-            }
-
-            // 4. Água: R$ 95,00
-            if ((updated.description.contains("Água", ignoreCase = true) || updated.description.contains("Agua", ignoreCase = true)) && updated.amount != 95.00) {
-                updated = updated.copy(amount = 95.00)
-                changed = true
-            }
-
-            // 5. Luz: R$ 100,00
-            if (updated.description.contains("Luz", ignoreCase = true) && updated.amount != 100.00) {
-                updated = updated.copy(amount = 100.00)
-                changed = true
-            }
-
-            // 6. Capoeira: R$ 80,00
-            if (updated.description.contains("Capoeira", ignoreCase = true) && updated.amount != 80.00) {
-                updated = updated.copy(amount = 80.00)
-                changed = true
-            }
-
-            // 7. Dentista: R$ 109,90
-            if (updated.description.contains("Dentista", ignoreCase = true) && updated.amount != 109.90) {
-                updated = updated.copy(amount = 109.90)
-                changed = true
-            }
-
-            // 8. Alex: R$ 25,00
-            if (updated.description.contains("Alex", ignoreCase = true) && updated.amount != 25.00) {
-                updated = updated.copy(amount = 25.00)
-                changed = true
-            }
-
-            // 9. Barbeiro: R$ 50,00
-            if (updated.description.contains("Barbeiro", ignoreCase = true) && updated.amount != 50.00) {
-                updated = updated.copy(amount = 50.00)
-                changed = true
-            }
-
-            // 10. Compras parceladas antigas de supermercado no Cartão Inter:
-            // Pertencem à fatura do cartão (R$ 362,96), não ao teto novo de mercado
-            if (updated.paymentType == PaymentType.CREDIT_CARD &&
-                (updated.description.contains("ARMACAO", ignoreCase = true) || updated.description.contains("SUPERMERCADOS BH", ignoreCase = true))) {
-                if (updated.category != "Cartão de Crédito" || !updated.includeInBudget) {
-                    updated = updated.copy(
-                        category = "Cartão de Crédito",
-                        categoryIcon = "💳",
-                        categoryColorHex = 0xFFE91E63,
-                        includeInBudget = true
-                    )
-                    changed = true
-                }
-            }
-
-            // 11. Cofrinho se já existir como transferência
-            if (updated.type == TransactionType.TRANSFER && updated.description.contains("Cofrinho", ignoreCase = true)) {
-                if (updated.amount != 1000.0 || !updated.includeInBudget) {
-                    updated = updated.copy(amount = 1000.0, includeInBudget = true)
-                    changed = true
-                }
-            }
-
-            // 12. Gladstoni se já existir
-            if (updated.description.contains("Gladstoni", ignoreCase = true)) {
-                if (updated.amount != 400.0 || updated.type != TransactionType.INCOME) {
-                    updated = updated.copy(amount = 400.0, type = TransactionType.INCOME)
-                    changed = true
-                }
-            }
-
-            updated
-        }.toMutableList()
-
-        // Gladstoni: R$ 400,00 (Receber)
-        val hasGladstoni = updatedItems.any { it.description.contains("Gladstoni", ignoreCase = true) }
-        if (!hasGladstoni) {
-            val gladstoniItem = TransactionItem(
-                id = "gladstoni_nov_2026",
-                description = "GLADSTONI",
-                amount = 400.0,
-                type = TransactionType.INCOME,
-                category = "Salário / Receita",
-                categoryIcon = "💰",
-                categoryColorHex = 0xFF2E7D32,
-                accountOrCardName = "Conta Inter",
-                paymentType = PaymentType.DEBIT_CARD,
-                tags = listOf("pessoal"),
-                monthYear = "NOVEMBRO 2026",
-                date = "",
-                status = PaymentStatus.TO_RECEIVE,
-                isRecurring = false,
-                includeInBudget = true
-            )
-            updatedItems.add(gladstoniItem)
-            changed = true
-        }
-
-        // Cofrinho: R$ 1.000,00 (Aporte)
-        val hasCofrinho = updatedItems.any { it.type == TransactionType.TRANSFER && it.description.contains("Cofrinho", ignoreCase = true) }
-        if (!hasCofrinho) {
-            val cofrinhoItem = TransactionItem(
-                id = "cofrinho_nov_2026",
-                description = "COFRINHO (Aporte)",
-                amount = 1000.0,
-                type = TransactionType.TRANSFER,
-                category = "Cofrinho & Reserva",
-                categoryIcon = "🐖",
-                categoryColorHex = 0xFF0284C7,
-                accountOrCardName = "Conta Inter",
-                paymentType = PaymentType.PIX,
-                tags = listOf("pessoal"),
-                monthYear = "NOVEMBRO 2026",
-                date = "",
-                status = PaymentStatus.PENDING,
-                isRecurring = false,
-                note = "Cofrinho Inter",
-                includeInBudget = true
-            )
-            updatedItems.add(cofrinhoItem)
-            changed = true
-        }
-
-        if (changed) {
-            _monthDataMap["NOVEMBRO 2026"] = novData.copy(
-                baseIncome = novBaseIncome,
-                items = updatedItems,
-                lastModified = System.currentTimeMillis()
-            )
-            recalculateAllMonths()
-            saveToDisk()
-        }
-    }
-
 
     fun moveCard(fromIndex: Int, toIndex: Int) {
         val list = _cards.value.toMutableList()
@@ -2176,12 +2070,24 @@ class FinanceRepository(private val context: Context) {
             }
             rootObj.put("months", monthsArr)
 
-            dataFile.writeText(rootObj.toString())
+            val jsonString = rootObj.toString()
+            dataFile.writeText(jsonString)
 
-            // Mantém cópia de segurança automática
+            // Espelhos de backup redundantes automáticos
             try {
                 val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
-                dataFile.copyTo(backupFile, overwrite = true)
+                backupFile.writeText(jsonString)
+            } catch (e: Exception) {
+                // backup silencioso
+            }
+            try {
+                val extDir = context.getExternalFilesDir(null)
+                if (extDir != null) {
+                    val extBackup = File(extDir, "hvfinancas_v6_backup.json")
+                    extBackup.writeText(jsonString)
+                    val extAuto = File(extDir, "hvfinancas_auto_backup.json")
+                    extAuto.writeText(jsonString)
+                }
             } catch (e: Exception) {
                 // backup silencioso
             }
@@ -2190,267 +2096,267 @@ class FinanceRepository(private val context: Context) {
         }
     }
 
-    private fun parseFullSavedJson(jsonString: String) {
-        val trimmed = jsonString.trim()
-        val rootObj = if (trimmed.startsWith("[")) {
-            JSONObject().apply { put("months", JSONArray(trimmed)) }
-        } else {
-            JSONObject(trimmed)
-        }
+    fun parseFullSavedJson(jsonString: String): Boolean {
+        return parseFullSavedJsonSafe(jsonString)
+    }
 
-        // Categorias
-        if (rootObj.has("categories")) {
-            val arr = rootObj.optJSONArray("categories") ?: JSONArray()
-            val list = mutableListOf<CategoryItem>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val catId = o.optString("id", UUID.randomUUID().toString())
-                val catName = o.optString("name", "Geral")
-                val isMercadoOrAlim = catId == "cat_merc" || catId == "cat_alim" || catName.equals("Mercado", ignoreCase = true)
-                val defaultLimit = if (isMercadoOrAlim) 700.0 else 0.0
-                val defaultReserve = isMercadoOrAlim
-                list.add(
-                    CategoryItem(
-                        id = catId,
-                        name = catName,
-                        iconEmoji = o.optString("iconEmoji", "🏷️"),
-                        colorHex = o.optLong("colorHex", 0xFF00A868L),
-                        isExpense = o.optBoolean("isExpense", true),
-                        budgetLimit = o.optDouble("budgetLimit", defaultLimit),
-                        reserveInBudget = o.optBoolean("reserveInBudget", defaultReserve)
-                    )
-                )
+    private fun parseFullSavedJsonSafe(jsonString: String): Boolean {
+        return try {
+            val trimmed = jsonString.trim()
+            val rootObj = if (trimmed.startsWith("[")) {
+                JSONObject().apply { put("months", JSONArray(trimmed)) }
+            } else {
+                JSONObject(trimmed)
             }
-            if (list.isNotEmpty()) {
-                _categories.value = list
-            }
-        }
 
-        // Tags
-        if (rootObj.has("tags")) {
-            val arr = rootObj.optJSONArray("tags") ?: JSONArray()
-            val list = mutableListOf<TagItem>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                list.add(
-                    TagItem(
-                        id = o.optString("id", UUID.randomUUID().toString()),
-                        name = o.optString("name", "Tag"),
-                        colorHex = o.optLong("colorHex", 0xFF00A868L)
-                    )
-                )
-            }
-            if (list.isNotEmpty()) {
-                _tags.value = list
-            }
-        }
-
-        // Contas
-        if (rootObj.has("accounts")) {
-            val accArr = rootObj.optJSONArray("accounts") ?: JSONArray()
-            val accList = mutableListOf<AccountItem>()
-            for (i in 0 until accArr.length()) {
-                val o = accArr.optJSONObject(i) ?: continue
-                val accId = o.optString("id", UUID.randomUUID().toString())
-                val rawType = o.optString("type", "CHECKING").uppercase()
-                val accType = when {
-                    rawType.contains("SAVING") || rawType.contains("POUPAN") -> AccountType.SAVINGS
-                    rawType.contains("WALLET") || rawType.contains("CARTEIRA") -> AccountType.WALLET
-                    rawType.contains("INVEST") -> AccountType.INVESTMENT
-                    else -> AccountType.CHECKING
+            // 1. Categorias
+            try {
+                if (rootObj.has("categories")) {
+                    val arr = rootObj.optJSONArray("categories") ?: JSONArray()
+                    val list = mutableListOf<CategoryItem>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        val catId = o.optString("id", UUID.randomUUID().toString())
+                        val catName = o.optString("name", "Geral")
+                        val isMercadoOrAlim = catId == "cat_merc" || catId == "cat_alim" || catName.equals("Mercado", ignoreCase = true)
+                        val defaultLimit = if (isMercadoOrAlim) 700.0 else 0.0
+                        val defaultReserve = isMercadoOrAlim
+                        list.add(
+                            CategoryItem(
+                                id = catId,
+                                name = catName,
+                                iconEmoji = o.optString("iconEmoji", "🏷️"),
+                                colorHex = o.optLong("colorHex", 0xFF00A868L),
+                                isExpense = o.optBoolean("isExpense", true),
+                                budgetLimit = o.optDouble("budgetLimit", defaultLimit),
+                                reserveInBudget = o.optBoolean("reserveInBudget", defaultReserve)
+                            )
+                        )
+                    }
+                    if (list.isNotEmpty()) {
+                        _categories.value = list
+                    }
                 }
-                val defaultInclude = !(accId.contains("cofrinho", ignoreCase = true) || accId.contains("emergencia", ignoreCase = true) || accType == AccountType.SAVINGS || accType == AccountType.INVESTMENT)
-                val accName = o.optString("name", "Conta")
-                val defaultCdi = if (accName.contains("Mercado Pago", ignoreCase = true) || accId.contains("mp", ignoreCase = true)) 115.0 else 0.0
-                accList.add(
-                    AccountItem(
-                        id = accId,
-                        name = accName,
-                        type = accType,
-                        balance = o.optDouble("balance", 0.0),
-                        colorHex = o.optLong("colorHex", 0xFF00A86BL),
-                        bankIcon = o.optString("bankIcon", "🏦"),
-                        isDefault = o.optBoolean("isDefault", i == 0),
-                        includeInOverallBalance = o.optBoolean("includeInOverallBalance", defaultInclude),
-                        cdiRatePercentage = o.optDouble("cdiRatePercentage", defaultCdi)
-                    )
-                )
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            if (accList.isNotEmpty()) {
-                if (accList.none { it.isDefault }) {
-                    accList[0] = accList[0].copy(isDefault = true)
+
+            // 2. Tags
+            try {
+                if (rootObj.has("tags")) {
+                    val arr = rootObj.optJSONArray("tags") ?: JSONArray()
+                    val list = mutableListOf<TagItem>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        list.add(
+                            TagItem(
+                                id = o.optString("id", UUID.randomUUID().toString()),
+                                name = o.optString("name", "Tag"),
+                                colorHex = o.optLong("colorHex", 0xFF00A868L)
+                            )
+                        )
+                    }
+                    if (list.isNotEmpty()) {
+                        _tags.value = list
+                    }
                 }
-                _accounts.value = accList
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        }
 
-        // Cartões
-        if (rootObj.has("cards")) {
-            val cardArr = rootObj.optJSONArray("cards") ?: JSONArray()
-            val cardList = mutableListOf<CreditCardItem>()
-            for (i in 0 until cardArr.length()) {
-                val o = cardArr.optJSONObject(i) ?: continue
-                val rawCardType = o.optString("cardType", "CREDIT").uppercase()
-                val cType = when {
-                    rawCardType.contains("VIRTUAL_DEBIT") || (rawCardType.contains("VIRTUAL") && rawCardType.contains("DEBIT")) -> CardType.VIRTUAL_DEBIT
-                    rawCardType.contains("VIRTUAL_CREDIT") || (rawCardType.contains("VIRTUAL") && rawCardType.contains("CREDIT")) -> CardType.VIRTUAL_CREDIT
-                    rawCardType.contains("MULTIPLE") || rawCardType.contains("MULTIPLO") -> CardType.MULTIPLE
-                    rawCardType.contains("DEBIT") || rawCardType.contains("DEBITO") -> CardType.DEBIT
-                    else -> CardType.CREDIT
+            // 3. Contas
+            try {
+                if (rootObj.has("accounts")) {
+                    val accArr = rootObj.optJSONArray("accounts") ?: JSONArray()
+                    val accList = mutableListOf<AccountItem>()
+                    for (i in 0 until accArr.length()) {
+                        val o = accArr.optJSONObject(i) ?: continue
+                        val accId = o.optString("id", UUID.randomUUID().toString())
+                        val rawType = o.optString("type", "CHECKING").uppercase()
+                        val accType = when {
+                            rawType.contains("SAVING") || rawType.contains("POUPAN") -> AccountType.SAVINGS
+                            rawType.contains("WALLET") || rawType.contains("CARTEIRA") -> AccountType.WALLET
+                            rawType.contains("INVEST") -> AccountType.INVESTMENT
+                            else -> AccountType.CHECKING
+                        }
+                        val defaultInclude = !(accId.contains("cofrinho", ignoreCase = true) || accId.contains("emergencia", ignoreCase = true) || accType == AccountType.SAVINGS || accType == AccountType.INVESTMENT)
+                        val accName = o.optString("name", "Conta")
+                        val defaultCdi = if (accName.contains("Mercado Pago", ignoreCase = true) || accId.contains("mp", ignoreCase = true)) 115.0 else 0.0
+                        accList.add(
+                            AccountItem(
+                                id = accId,
+                                name = accName,
+                                type = accType,
+                                balance = o.optDouble("balance", 0.0),
+                                colorHex = o.optLong("colorHex", 0xFF00A86BL),
+                                bankIcon = o.optString("bankIcon", "🏦"),
+                                isDefault = o.optBoolean("isDefault", i == 0),
+                                includeInOverallBalance = o.optBoolean("includeInOverallBalance", defaultInclude),
+                                cdiRatePercentage = o.optDouble("cdiRatePercentage", defaultCdi)
+                            )
+                        )
+                    }
+                    if (accList.isNotEmpty()) {
+                        if (accList.none { it.isDefault }) {
+                            accList[0] = accList[0].copy(isDefault = true)
+                        }
+                        _accounts.value = accList
+                    }
                 }
-                cardList.add(
-                    CreditCardItem(
-                        id = o.optString("id", UUID.randomUUID().toString()),
-                        name = o.optString("name", "Cartão"),
-                        limit = o.optDouble("limit", 1000.0),
-                        closingDay = o.optInt("closingDay", 6),
-                        dueDay = o.optInt("dueDay", 15),
-                        colorHex = o.optLong("colorHex", 0xFFFF7A00L),
-                        bankName = o.optString("bankName", "Banco"),
-                        brand = o.optString("brand", "Mastercard"),
-                        linkedAccountId = o.optString("linkedAccountId", ""),
-                        cardType = cType
-                    )
-                )
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            if (cardList.isNotEmpty()) {
-                _cards.value = cardList
+
+            // 4. Cartões
+            try {
+                if (rootObj.has("cards")) {
+                    val cardArr = rootObj.optJSONArray("cards") ?: JSONArray()
+                    val cardList = mutableListOf<CreditCardItem>()
+                    for (i in 0 until cardArr.length()) {
+                        val o = cardArr.optJSONObject(i) ?: continue
+                        val rawCardType = o.optString("cardType", "CREDIT").uppercase()
+                        val cType = when {
+                            rawCardType.contains("VIRTUAL_DEBIT") || (rawCardType.contains("VIRTUAL") && rawCardType.contains("DEBIT")) -> CardType.VIRTUAL_DEBIT
+                            rawCardType.contains("VIRTUAL_CREDIT") || (rawCardType.contains("VIRTUAL") && rawCardType.contains("CREDIT")) -> CardType.VIRTUAL_CREDIT
+                            rawCardType.contains("MULTIPLE") || rawCardType.contains("MULTIPLO") -> CardType.MULTIPLE
+                            rawCardType.contains("DEBIT") || rawCardType.contains("DEBITO") -> CardType.DEBIT
+                            else -> CardType.CREDIT
+                        }
+                        cardList.add(
+                            CreditCardItem(
+                                id = o.optString("id", UUID.randomUUID().toString()),
+                                name = o.optString("name", "Cartão"),
+                                limit = o.optDouble("limit", 1000.0),
+                                closingDay = o.optInt("closingDay", 6),
+                                dueDay = o.optInt("dueDay", 15),
+                                colorHex = o.optLong("colorHex", 0xFFFF7A00L),
+                                bankName = o.optString("bankName", "Banco"),
+                                brand = o.optString("brand", "Mastercard"),
+                                linkedAccountId = o.optString("linkedAccountId", ""),
+                                cardType = cType
+                            )
+                        )
+                    }
+                    if (cardList.isNotEmpty()) {
+                        _cards.value = cardList
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        }
 
-        // Meses
-        val monthsArr = rootObj.optJSONArray("months") ?: JSONArray()
-        val monthList = mutableListOf<String>()
-        for (i in 0 until monthsArr.length()) {
-            val mObj = monthsArr.optJSONObject(i) ?: continue
-            val rawMonth = mObj.optString("mes_ano", mObj.optString("monthYear", ""))
-            val month = rawMonth.replace("\uFFFD", "Ç").trim()
-            if (month.isBlank()) continue
-            monthList.add(month)
+            // 5. Meses e Itens
+            val monthsArr = rootObj.optJSONArray("months") ?: JSONArray()
+            val monthList = mutableListOf<String>()
+            for (i in 0 until monthsArr.length()) {
+                try {
+                    val mObj = monthsArr.optJSONObject(i) ?: continue
+                    val rawMonth = mObj.optString("mes_ano", mObj.optString("monthYear", ""))
+                    val month = rawMonth.replace("\uFFFD", "Ç").trim()
+                    if (month.isBlank()) continue
+                    monthList.add(month)
 
-            val itemsArr = mObj.optJSONArray("itens") ?: mObj.optJSONArray("items") ?: JSONArray()
-            val items = mutableListOf<TransactionItem>()
-            for (j in 0 until itemsArr.length()) {
-                val iObj = itemsArr.optJSONObject(j) ?: continue
-                val tArr = iObj.optJSONArray("tags") ?: JSONArray()
-                val tagList = mutableListOf<String>()
-                for (k in 0 until tArr.length()) tagList.add(tArr.getString(k))
+                    val itemsArr = mObj.optJSONArray("itens") ?: mObj.optJSONArray("items") ?: JSONArray()
+                    val items = mutableListOf<TransactionItem>()
+                    for (j in 0 until itemsArr.length()) {
+                        try {
+                            val iObj = itemsArr.optJSONObject(j) ?: continue
+                            val tArr = iObj.optJSONArray("tags") ?: JSONArray()
+                            val tagList = mutableListOf<String>()
+                            for (k in 0 until tArr.length()) {
+                                val tagStr = tArr.optString(k, "").trim()
+                                if (tagStr.isNotEmpty()) tagList.add(tagStr)
+                            }
 
-                val rawType = iObj.optString("type", "EXPENSE").uppercase()
-                val transType = when {
-                    rawType.contains("INCOME") || rawType.contains("RECEITA") -> TransactionType.INCOME
-                    rawType.contains("TRANSFER") -> TransactionType.TRANSFER
-                    else -> TransactionType.EXPENSE
-                }
+                            val rawType = iObj.optString("type", "EXPENSE").uppercase()
+                            val transType = when {
+                                rawType.contains("INCOME") || rawType.contains("RECEITA") -> TransactionType.INCOME
+                                rawType.contains("TRANSFER") -> TransactionType.TRANSFER
+                                else -> TransactionType.EXPENSE
+                            }
 
-                val rawPayType = iObj.optString("paymentType", "CREDIT_CARD").uppercase()
-                val payType = when {
-                    rawPayType.contains("DEBIT") || rawPayType.contains("DEBITO") -> PaymentType.DEBIT_CARD
-                    rawPayType.contains("PIX") -> PaymentType.PIX
-                    rawPayType.contains("CASH") || rawPayType.contains("DINHEIRO") -> PaymentType.CASH
-                    rawPayType.contains("INVEST") -> PaymentType.INVESTMENT
-                    else -> PaymentType.CREDIT_CARD
-                }
+                            val rawPayType = iObj.optString("paymentType", "CREDIT_CARD").uppercase()
+                            val payType = when {
+                                rawPayType.contains("DEBIT") || rawPayType.contains("DEBITO") -> PaymentType.DEBIT_CARD
+                                rawPayType.contains("PIX") -> PaymentType.PIX
+                                rawPayType.contains("CASH") || rawPayType.contains("DINHEIRO") -> PaymentType.CASH
+                                rawPayType.contains("INVEST") -> PaymentType.INVESTMENT
+                                else -> PaymentType.CREDIT_CARD
+                            }
 
-                val rawStatus = iObj.optString("status", "PENDING").uppercase()
-                val payStatus = when {
-                    rawStatus.contains("PAGO") || rawStatus.contains("PAID") -> PaymentStatus.PAID
-                    rawStatus.contains("RECEBER") || rawStatus.contains("TO_RECEIVE") -> PaymentStatus.TO_RECEIVE
-                    else -> PaymentStatus.PENDING
-                }
+                            val rawStatus = iObj.optString("status", "PENDING").uppercase()
+                            val payStatus = when {
+                                rawStatus.contains("PAGO") || rawStatus.contains("PAID") -> PaymentStatus.PAID
+                                rawStatus.contains("RECEBER") || rawStatus.contains("TO_RECEIVE") -> PaymentStatus.TO_RECEIVE
+                                else -> PaymentStatus.PENDING
+                            }
 
-                val desc = iObj.optString("description", iObj.optString("descricao", "Lançamento"))
-                val amt = if (iObj.has("amount")) iObj.optDouble("amount", 0.0) else iObj.optDouble("valor", 0.0)
-                val catName = iObj.optString("category", iObj.optString("categoria", "Geral"))
-                val accCardName = iObj.optString("accountOrCardName", iObj.optString("forma_pagamento", "Conta Principal"))
-                val dt = iObj.optString("date", iObj.optString("vencimento", ""))
+                            val desc = iObj.optString("description", iObj.optString("descricao", "Lançamento"))
+                            val amt = if (iObj.has("amount")) iObj.optDouble("amount", 0.0) else iObj.optDouble("valor", 0.0)
+                            val catName = iObj.optString("category", iObj.optString("categoria", "Geral"))
+                            val accCardName = iObj.optString("accountOrCardName", iObj.optString("forma_pagamento", "Conta Principal"))
+                            val dt = iObj.optString("date", iObj.optString("vencimento", ""))
 
-                items.add(
-                    TransactionItem(
-                        id = iObj.optString("id", UUID.randomUUID().toString()),
-                        description = desc,
-                        amount = amt,
-                        type = transType,
-                        category = catName,
-                        categoryIcon = iObj.optString("categoryIcon", "🏷️"),
-                        categoryColorHex = iObj.optLong("categoryColorHex", 0xFF757575L),
-                        accountOrCardName = accCardName,
-                        paymentType = payType,
-                        tags = tagList,
+                            items.add(
+                                TransactionItem(
+                                    id = iObj.optString("id", UUID.randomUUID().toString()),
+                                    description = desc,
+                                    amount = amt,
+                                    type = transType,
+                                    category = catName,
+                                    categoryIcon = iObj.optString("categoryIcon", "🏷️"),
+                                    categoryColorHex = iObj.optLong("categoryColorHex", 0xFF757575L),
+                                    accountOrCardName = accCardName,
+                                    paymentType = payType,
+                                    tags = tagList,
+                                    monthYear = month,
+                                    date = dt,
+                                    status = payStatus,
+                                    isRecurring = iObj.optBoolean("isRecurring", false),
+                                    installmentGroupId = iObj.optString("installmentGroupId", ""),
+                                    currentInstallment = iObj.optInt("currentInstallment", 1),
+                                    totalInstallments = iObj.optInt("totalInstallments", 1),
+                                    note = iObj.optString("note", ""),
+                                    includeInBudget = iObj.optBoolean("includeInBudget", true),
+                                    isSalaryReplacement = iObj.optBoolean("isSalaryReplacement", false)
+                                )
+                            )
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    _monthDataMap[month] = MonthData(
                         monthYear = month,
-                        date = dt,
-                        status = payStatus,
-                        isRecurring = iObj.optBoolean("isRecurring", false),
-                        installmentGroupId = iObj.optString("installmentGroupId", ""),
-                        currentInstallment = iObj.optInt("currentInstallment", 1),
-                        totalInstallments = iObj.optInt("totalInstallments", 1),
-                        note = iObj.optString("note", ""),
-                        includeInBudget = iObj.optBoolean("includeInBudget", true),
-                        isSalaryReplacement = iObj.optBoolean("isSalaryReplacement", false)
+                        items = items,
+                        totalExpense = mObj.optDouble("totalExpense", 0.0),
+                        totalIncome = mObj.optDouble("totalIncome", 0.0),
+                        remainingBalance = mObj.optDouble("remainingBalance", 0.0),
+                        previousMonthBalance = mObj.optDouble("previousMonthBalance", 0.0),
+                        currentMonthIncome = mObj.optDouble("currentMonthIncome", 0.0),
+                        baseIncome = mObj.optDouble("baseIncome", 0.0)
                     )
-                )
-            }
-
-            _monthDataMap[month] = MonthData(
-                monthYear = month,
-                items = items,
-                totalExpense = mObj.optDouble("totalExpense", 0.0),
-                totalIncome = mObj.optDouble("totalIncome", 0.0),
-                remainingBalance = mObj.optDouble("remainingBalance", 0.0),
-                previousMonthBalance = mObj.optDouble("previousMonthBalance", 0.0),
-                currentMonthIncome = mObj.optDouble("currentMonthIncome", 0.0),
-                baseIncome = mObj.optDouble("baseIncome", 0.0)
-            )
-        }
-
-        if (monthList.isNotEmpty()) {
-            _months.value = monthList
-            applyOctoberBackwardsPaidStatus()
-            purgeSpuriousNotificationEchoes()
-            purgeFundoEmergenciaAndGastosAdicionais()
-            purgeMercadoPlaceholder()
-            recalculateAllMonths()
-            val defaultMonth = monthList.find { it.contains("OUTUBRO 2026") }
-                ?: monthList.firstOrNull() ?: ""
-            selectMonth(defaultMonth)
-        }
-    }
-
-    fun isMonthOctober2026OrEarlier(monthYear: String): Boolean {
-        val monthOrder = listOf("JANEIRO", "FEVEREIRO", "MARÇO", "MARCO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "NOVEMBO", "DEZEMBRO")
-        val parts = monthYear.trim().split(" ")
-        if (parts.size >= 2) {
-            val mName = parts[0].uppercase()
-            val year = parts[1].toIntOrNull() ?: 2026
-            if (year < 2026) return true
-            if (year == 2026) {
-                val mIdx = monthOrder.indexOfFirst { mName.contains(it) }
-                val octIdx = monthOrder.indexOfFirst { it.contains("OUTUBRO") }
-                return mIdx in 0..octIdx
-            }
-            return false
-        }
-        return false
-    }
-
-    fun applyOctoberBackwardsPaidStatus() {
-        var changed = false
-        for ((mYear, mData) in _monthDataMap) {
-            if (isMonthOctober2026OrEarlier(mYear)) {
-                val updatedItems = mData.items.map {
-                    if (it.status != PaymentStatus.PAID) {
-                        changed = true
-                        it.copy(status = PaymentStatus.PAID)
-                    } else it
-                }
-                if (changed) {
-                    _monthDataMap[mYear] = mData.copy(items = updatedItems)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
-        }
-        if (changed) {
-            recalculateAllMonths()
-            saveToDisk()
+
+            if (monthList.isNotEmpty()) {
+                _months.value = monthList
+                purgeSpuriousNotificationEchoes()
+                recalculateAllMonths()
+                val currentSelected = _selectedMonth.value
+                val defaultMonth = if (currentSelected.isNotEmpty() && monthList.contains(currentSelected)) {
+                    currentSelected
+                } else {
+                    monthList.find { it.contains("OUTUBRO 2026") } ?: monthList.firstOrNull() ?: ""
+                }
+                selectMonth(defaultMonth)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
@@ -2475,42 +2381,6 @@ class FinanceRepository(private val context: Context) {
         }
     }
 
-    fun purgeFundoEmergenciaAndGastosAdicionais() {
-        var changed = false
-        for ((mYear, mData) in _monthDataMap) {
-            val filtered = mData.items.filterNot {
-                val desc = it.description.uppercase()
-                (desc.contains("FUNDO") && desc.contains("EMERG")) ||
-                (desc.contains("GASTO") && desc.contains("ADICIONA"))
-            }
-            if (filtered.size != mData.items.size) {
-                changed = true
-                _monthDataMap[mYear] = mData.copy(items = filtered)
-            }
-        }
-        if (changed) {
-            recalculateAllMonths()
-            saveToDisk()
-        }
-    }
-
-    fun purgeMercadoPlaceholder() {
-        var changed = false
-        for ((mYear, mData) in _monthDataMap) {
-            val filtered = mData.items.filterNot {
-                it.description.trim().equals("MERCADO", ignoreCase = true) && it.amount == 700.0
-            }
-            if (filtered.size != mData.items.size) {
-                changed = true
-                _monthDataMap[mYear] = mData.copy(items = filtered)
-            }
-        }
-        if (changed) {
-            recalculateAllMonths()
-            saveToDisk()
-        }
-    }
-
     fun exportBackupJson(): String {
         saveToDisk()
         return if (dataFile.exists()) dataFile.readText() else "{}"
@@ -2523,9 +2393,11 @@ class FinanceRepository(private val context: Context) {
                 android.util.Log.e("FinanceRepository", "Formato inválido: não inicia com { ou [")
                 return false
             }
-            parseFullSavedJson(trimmed)
-            saveToDisk()
-            true
+            val ok = parseFullSavedJsonSafe(trimmed)
+            if (ok) {
+                saveToDisk()
+            }
+            ok
         } catch (e: Exception) {
             android.util.Log.e("FinanceRepository", "Erro ao importar backup JSON", e)
             e.printStackTrace()
