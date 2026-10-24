@@ -1,8 +1,12 @@
 package com.example.mobillsfinancas.ui.main
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -326,7 +330,9 @@ fun MainScreen(
                     onApplyYields = { viewModel.applyDailyYields(it) },
                     onToggleAutoYield = { viewModel.setAutoApplyYield(it) },
                     onDirectBalanceUpdate = { acc, newBal -> viewModel.updateAccount(acc.copy(balance = newBal)) },
-                    onAddCategory = { viewModel.addCategory(it) }
+                    onAddCategory = { viewModel.addCategory(it) },
+                    onImportBackup = { viewModel.importBackup(it) },
+                    onAddTransaction = { showMobillsTransactionSheet = true }
                 )
                 1 -> TransactionsTab(
                     currentMonthData = currentMonthData,
@@ -1186,8 +1192,32 @@ fun DashboardTab(
     onApplyYields: (Map<String, Double>) -> Unit = {},
     onToggleAutoYield: (Boolean) -> Unit = {},
     onDirectBalanceUpdate: (AccountItem, Double) -> Unit = { _, _ -> },
-    onAddCategory: ((com.example.mobillsfinancas.data.CategoryItem) -> Unit)? = null
+    onAddCategory: ((com.example.mobillsfinancas.data.CategoryItem) -> Unit)? = null,
+    onImportBackup: (String) -> Boolean = { false },
+    onAddTransaction: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (!content.isNullOrBlank()) {
+                    val success = onImportBackup(content)
+                    if (success) {
+                        Toast.makeText(context, "✅ Backup restaurado com sucesso!", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "❌ Arquivo de backup inválido", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "❌ Erro ao ler arquivo: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val items = currentMonthData?.items ?: emptyList()
     val totalExp = currentMonthData?.totalExpense ?: 0.0
     val totalInc = currentMonthData?.totalIncome ?: 3500.0
@@ -1430,17 +1460,64 @@ fun DashboardTab(
             }
         } else if (items.isEmpty()) {
             item {
-                Box(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
-                    Text(
-                        text = "Nenhum lançamento em $selectedMonth",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "📊",
+                            fontSize = 32.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Nenhum lançamento em $selectedMonth",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Atualizou o aplicativo ou trocou de aparelho? Restaure todos os seus dados anteriores com 1 toque a partir do seu backup JSON.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    filePickerLauncher.launch("*/*")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                            ) {
+                                Text("📥 Restaurar Backup", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            OutlinedButton(
+                                onClick = onAddTransaction,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("➕ Novo Lançamento", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

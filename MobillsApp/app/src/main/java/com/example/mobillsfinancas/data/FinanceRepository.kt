@@ -106,12 +106,44 @@ class FinanceRepository(private val context: Context) {
         }
     }
 
+    private fun atomicWrite(file: File, content: String) {
+        try {
+            val parent = file.parentFile
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs()
+            }
+            val tmpFile = File(parent ?: context.filesDir, "${file.name}.tmp")
+            java.io.FileOutputStream(tmpFile).use { fos ->
+                val bytes = content.toByteArray(Charsets.UTF_8)
+                fos.write(bytes)
+                fos.flush()
+                fos.fd.sync()
+            }
+            if (tmpFile.exists()) {
+                if (file.exists()) {
+                    file.delete()
+                }
+                tmpFile.renameTo(file)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                file.writeText(content)
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+        }
+    }
+
     /**
      * Procura de forma segura por qualquer arquivo de dados preexistente no dispositivo,
      * priorizando arquivos que contenham lançamentos reais (itens de transação).
      */
     private fun findBestDataFile(): File? {
         val candidateLocations = listOf(
+            File(context.filesDir, "HV_Financas_Backup_Atualizado.json"),
+            File(context.filesDir, "hvfinancas_backup.json"),
+            File(context.filesDir, "backup_hvfinancas_corrigido.json"),
             File(context.filesDir, "hvfinancas_v6.json"),
             File(context.filesDir, "hvfinancas_emergency_recovery.json"),
             File(context.filesDir, "hvfinancas_v6_backup.json"),
@@ -127,10 +159,12 @@ class FinanceRepository(private val context: Context) {
         try {
             val extDir = context.getExternalFilesDir(null)
             if (extDir != null) {
+                externalCandidates.add(File(extDir, "HV_Financas_Backup_Atualizado.json"))
+                externalCandidates.add(File(extDir, "hvfinancas_backup.json"))
+                externalCandidates.add(File(extDir, "backup_hvfinancas_corrigido.json"))
                 externalCandidates.add(File(extDir, "hvfinancas_v6_backup.json"))
                 externalCandidates.add(File(extDir, "hvfinancas_auto_backup.json"))
                 externalCandidates.add(File(extDir, "hvfinancas_emergency_recovery.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_backup.json"))
                 externalCandidates.add(File(extDir, "hvfinancas_v6.json"))
                 externalCandidates.add(File(extDir, "hvfinancas.json"))
             }
@@ -141,8 +175,11 @@ class FinanceRepository(private val context: Context) {
         try {
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             if (downloadsDir != null && downloadsDir.exists()) {
+                externalCandidates.add(File(downloadsDir, "HV_Financas_Backup_Atualizado.json"))
                 externalCandidates.add(File(downloadsDir, "hvfinancas_backup.json"))
+                externalCandidates.add(File(downloadsDir, "backup_hvfinancas_corrigido.json"))
                 externalCandidates.add(File(downloadsDir, "hvfinancas_v6_backup.json"))
+                externalCandidates.add(File(downloadsDir, "hvfinancas_v6.json"))
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -211,8 +248,6 @@ class FinanceRepository(private val context: Context) {
                     // 2. Faz o parse seguro à prova de falhas
                     val parseOk = parseFullSavedJsonSafe(jsonString)
                     if (parseOk) {
-                        cleanupBogusCapturedTransactions()
-                        reconcileCardAndAccountNames()
                         checkAndApplyAutoYield()
 
                         // 3. Garante que se o arquivo escolhido era um backup/versão anterior,
@@ -237,7 +272,6 @@ class FinanceRepository(private val context: Context) {
             } else {
                 parseExcelExtractedJson(assetJson)
             }
-            reconcileCardAndAccountNames()
             saveToDisk()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -388,32 +422,7 @@ class FinanceRepository(private val context: Context) {
         selectMonth(defaultMonth)
     }
 
-    private fun cleanupBogusCapturedTransactions() {
-        var modified = false
-        for ((mKey, mData) in _monthDataMap) {
-            val invalidItems = mData.items.filter { item ->
-                item.description.contains("negada", ignoreCase = true) ||
-                item.description.contains("recusada", ignoreCase = true) ||
-                item.description.contains("revisada", ignoreCase = true) ||
-                item.description.contains("cancelada", ignoreCase = true)
-            }
-            if (invalidItems.isNotEmpty()) {
-                val newItems = mData.items.filterNot { it in invalidItems }
-                _monthDataMap[mKey] = mData.copy(items = newItems, lastModified = System.currentTimeMillis())
-                modified = true
-            }
-        }
-        if (modified) {
-            recalculateAllMonths()
-            saveToDisk()
-        }
-        _recentCapturedTransactions.value = _recentCapturedTransactions.value.filterNot {
-            it.description.contains("negada", ignoreCase = true) ||
-            it.description.contains("recusada", ignoreCase = true) ||
-            it.description.contains("revisada", ignoreCase = true) ||
-            it.description.contains("cancelada", ignoreCase = true)
-        }
-    }
+
 
     private fun createFallbackData() {
         val month = "OUTUBRO 2026"
@@ -864,84 +873,7 @@ class FinanceRepository(private val context: Context) {
         saveToDisk()
     }
 
-    /**
-     * Reconcilia lançamentos antigos com cartões ou contas cujos nomes foram alterados
-     * anteriormente, garantindo que faturas, extrato e gráficos fiquem 100% atualizados.
-     */
-    private fun reconcileCardAndAccountNames() {
-        // Mapeamento de nomes originais conhecidos para o ID do cartão
-        val defaultCardIds = mapOf(
-            "cartao inter" to "card_inter",
-            "cartão inter" to "card_inter",
-            "inter" to "card_inter",
-            "cartao will" to "card_will",
-            "cartão will" to "card_will",
-            "will" to "card_will",
-            "will bank" to "card_will",
-            "cartao sofisa" to "card_sofisa",
-            "cartão sofisa" to "card_sofisa",
-            "sofisa" to "card_sofisa",
-            "sofisa direto" to "card_sofisa",
-            "cartao mercado pago" to "card_mp",
-            "cartão mercado pago" to "card_mp",
-            "mercado pago" to "card_mp",
-            "cartao nubank" to "card_nu",
-            "cartão nubank" to "card_nu",
-            "nubank" to "card_nu",
-            "cartao caixa" to "card_caixa",
-            "cartão caixa" to "card_caixa",
-            "caixa" to "card_caixa",
-            "caixa economica" to "card_caixa",
-            "caixa econômica" to "card_caixa"
-        )
 
-        var anyModified = false
-        val currentCardNames = _cards.value.map { it.name.trim().lowercase() }.toSet()
-
-        for ((mKey, mData) in _monthDataMap) {
-            var monthModified = false
-            val updatedItems = mData.items.map { item ->
-                val cleanTarget = item.accountOrCardName.trim().lowercase()
-
-                // Se o lançamento for de cartão de crédito e o nome atual dele não bate com nenhum cartão ativo:
-                if (item.paymentType == PaymentType.CREDIT_CARD && !currentCardNames.contains(cleanTarget)) {
-                    val matchedId = defaultCardIds[cleanTarget]
-                    val targetCard = if (matchedId != null) {
-                        _cards.value.find { it.id == matchedId }
-                    } else {
-                        _cards.value.find { card ->
-                            card.cardType.allowsCredit && (
-                                cleanTarget.contains(card.bankName.trim().lowercase()) ||
-                                card.name.trim().lowercase().contains(cleanTarget)
-                            )
-                        }
-                    }
-
-                    if (targetCard != null && !item.accountOrCardName.equals(targetCard.name, ignoreCase = true)) {
-                        monthModified = true
-                        anyModified = true
-                        item.copy(accountOrCardName = targetCard.name)
-                    } else {
-                        item
-                    }
-                } else {
-                    item
-                }
-            }
-
-            if (monthModified) {
-                _monthDataMap[mKey] = mData.copy(
-                    items = updatedItems,
-                    lastModified = System.currentTimeMillis()
-                )
-            }
-        }
-
-        if (anyModified) {
-            recalculateAllMonths()
-            saveToDisk()
-        }
-    }
 
     fun moveCard(fromIndex: Int, toIndex: Int) {
         val list = _cards.value.toMutableList()
@@ -2071,12 +2003,12 @@ class FinanceRepository(private val context: Context) {
             rootObj.put("months", monthsArr)
 
             val jsonString = rootObj.toString()
-            dataFile.writeText(jsonString)
+            atomicWrite(dataFile, jsonString)
 
             // Espelhos de backup redundantes automáticos
             try {
                 val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
-                backupFile.writeText(jsonString)
+                atomicWrite(backupFile, jsonString)
             } catch (e: Exception) {
                 // backup silencioso
             }
@@ -2084,9 +2016,18 @@ class FinanceRepository(private val context: Context) {
                 val extDir = context.getExternalFilesDir(null)
                 if (extDir != null) {
                     val extBackup = File(extDir, "hvfinancas_v6_backup.json")
-                    extBackup.writeText(jsonString)
+                    atomicWrite(extBackup, jsonString)
                     val extAuto = File(extDir, "hvfinancas_auto_backup.json")
-                    extAuto.writeText(jsonString)
+                    atomicWrite(extAuto, jsonString)
+                }
+            } catch (e: Exception) {
+                // backup silencioso
+            }
+            try {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (downloadsDir != null && downloadsDir.exists()) {
+                    val dlBackup = File(downloadsDir, "hvfinancas_backup.json")
+                    atomicWrite(dlBackup, jsonString)
                 }
             } catch (e: Exception) {
                 // backup silencioso
