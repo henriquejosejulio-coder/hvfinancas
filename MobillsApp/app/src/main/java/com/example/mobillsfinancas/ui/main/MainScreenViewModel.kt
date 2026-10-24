@@ -217,4 +217,8 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun importBackup(jsonString: String): Boolean {
         return repository.importBackupJson(jsonString)
     }
+
+    fun scanAndRestoreBestData(): Pair<Boolean, Int> {
+        return repository.restoreFromBestAvailableSource()
+    }
 }

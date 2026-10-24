@@ -332,7 +332,8 @@ fun MainScreen(
                     onDirectBalanceUpdate = { acc, newBal -> viewModel.updateAccount(acc.copy(balance = newBal)) },
                     onAddCategory = { viewModel.addCategory(it) },
                     onImportBackup = { viewModel.importBackup(it) },
-                    onAddTransaction = { showMobillsTransactionSheet = true }
+                    onAddTransaction = { showMobillsTransactionSheet = true },
+                    onDeepScanRestore = { viewModel.scanAndRestoreBestData() }
                 )
                 1 -> TransactionsTab(
                     currentMonthData = currentMonthData,
@@ -1194,9 +1195,13 @@ fun DashboardTab(
     onDirectBalanceUpdate: (AccountItem, Double) -> Unit = { _, _ -> },
     onAddCategory: ((com.example.mobillsfinancas.data.CategoryItem) -> Unit)? = null,
     onImportBackup: (String) -> Boolean = { false },
-    onAddTransaction: () -> Unit = {}
+    onAddTransaction: () -> Unit = {},
+    onDeepScanRestore: () -> Pair<Boolean, Int> = { Pair(false, 0) }
 ) {
     val context = LocalContext.current
+    var showPasteJsonDialog by remember { mutableStateOf(false) }
+    var pastedJsonText by remember { mutableStateOf("") }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -1495,32 +1500,111 @@ fun DashboardTab(
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(16.dp))
+
+                        // Botão 1: Varredura Automática no Celular
+                        Button(
+                            onClick = {
+                                val result = onDeepScanRestore()
+                                if (result.first) {
+                                    Toast.makeText(context, "✅ Sucesso! ${result.second} lançamentos recuperados automaticamente!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Nenhum backup automático preexistente encontrado.", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                        ) {
+                            Text("🔍 Recuperar Backup Automático", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Button(
+                            OutlinedButton(
                                 onClick = {
                                     filePickerLauncher.launch("*/*")
                                 },
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("📥 Restaurar Backup", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("📥 Arquivo JSON", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
-                                onClick = onAddTransaction,
+                                onClick = { showPasteJsonDialog = true },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text("➕ Novo Lançamento", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("📋 Colar Texto", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = onAddTransaction,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("➕ Novo Lançamento Manual", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showPasteJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteJsonDialog = false },
+            title = { Text("📋 Colar Backup em Texto (JSON)", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Cole o texto do seu backup JSON completo abaixo:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = pastedJsonText,
+                        onValueChange = { pastedJsonText = it },
+                        placeholder = { Text("Cole o JSON aqui...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pastedJsonText.isNotBlank()) {
+                            val success = onImportBackup(pastedJsonText)
+                            if (success) {
+                                Toast.makeText(context, "✅ Backup restaurado com sucesso!", Toast.LENGTH_LONG).show()
+                                showPasteJsonDialog = false
+                                pastedJsonText = ""
+                            } else {
+                                Toast.makeText(context, "❌ JSON inválido ou corrompido", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                    enabled = pastedJsonText.isNotBlank()
+                ) {
+                    Text("Restaurar Dados")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteJsonDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 

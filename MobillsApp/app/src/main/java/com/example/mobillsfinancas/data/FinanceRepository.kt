@@ -14,6 +14,7 @@ import com.example.mobillsfinancas.utils.MonthHelper
 import com.example.mobillsfinancas.utils.BankRegistry
 import com.example.mobillsfinancas.utils.SupportedBank
 import com.example.mobillsfinancas.utils.Formatters
+import com.example.mobillsfinancas.utils.BackupManager
 
 class FinanceRepository(private val context: Context) {
 
@@ -85,186 +86,33 @@ class FinanceRepository(private val context: Context) {
         loadData()
     }
 
-    private fun countTransactionItems(jsonString: String): Int {
-        return try {
-            val trimmed = jsonString.trim()
-            val monthsArr = if (trimmed.startsWith("[")) {
-                JSONArray(trimmed)
-            } else {
-                val obj = JSONObject(trimmed)
-                obj.optJSONArray("months") ?: return 0
-            }
-            var count = 0
-            for (i in 0 until monthsArr.length()) {
-                val mObj = monthsArr.optJSONObject(i) ?: continue
-                val itemsArr = mObj.optJSONArray("itens") ?: mObj.optJSONArray("items") ?: continue
-                count += itemsArr.length()
-            }
-            count
-        } catch (e: Exception) {
-            -1
+    fun restoreFromBestAvailableSource(): Pair<Boolean, Int> {
+        val bestJson = BackupManager.deepScanBestAvailableData(context) ?: return Pair(false, 0)
+        val count = BackupManager.countItems(bestJson)
+        val ok = parseFullSavedJsonSafe(bestJson)
+        if (ok) {
+            checkAndApplyAutoYield()
+            saveToDisk()
         }
-    }
-
-    private fun atomicWrite(file: File, content: String) {
-        try {
-            val parent = file.parentFile
-            if (parent != null && !parent.exists()) {
-                parent.mkdirs()
-            }
-            val tmpFile = File(parent ?: context.filesDir, "${file.name}.tmp")
-            java.io.FileOutputStream(tmpFile).use { fos ->
-                val bytes = content.toByteArray(Charsets.UTF_8)
-                fos.write(bytes)
-                fos.flush()
-                fos.fd.sync()
-            }
-            if (tmpFile.exists()) {
-                if (file.exists()) {
-                    file.delete()
-                }
-                tmpFile.renameTo(file)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            try {
-                file.writeText(content)
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-            }
-        }
-    }
-
-    /**
-     * Procura de forma segura por qualquer arquivo de dados preexistente no dispositivo,
-     * priorizando arquivos que contenham lançamentos reais (itens de transação).
-     */
-    private fun findBestDataFile(): File? {
-        val candidateLocations = listOf(
-            File(context.filesDir, "HV_Financas_Backup_Atualizado.json"),
-            File(context.filesDir, "hvfinancas_backup.json"),
-            File(context.filesDir, "backup_hvfinancas_corrigido.json"),
-            File(context.filesDir, "hvfinancas_v6.json"),
-            File(context.filesDir, "hvfinancas_emergency_recovery.json"),
-            File(context.filesDir, "hvfinancas_v6_backup.json"),
-            File(context.filesDir, "hvfinancas_auto_backup.json"),
-            File(context.filesDir, "hvfinancas_v5.json"),
-            File(context.filesDir, "hvfinancas_v4.json"),
-            File(context.filesDir, "hvfinancas_v3.json"),
-            File(context.filesDir, "hvfinancas.json"),
-            File(context.filesDir, "financas_data.json")
-        )
-
-        val externalCandidates = mutableListOf<File>()
-        try {
-            val extDir = context.getExternalFilesDir(null)
-            if (extDir != null) {
-                externalCandidates.add(File(extDir, "HV_Financas_Backup_Atualizado.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_backup.json"))
-                externalCandidates.add(File(extDir, "backup_hvfinancas_corrigido.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_v6_backup.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_auto_backup.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_emergency_recovery.json"))
-                externalCandidates.add(File(extDir, "hvfinancas_v6.json"))
-                externalCandidates.add(File(extDir, "hvfinancas.json"))
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (downloadsDir != null && downloadsDir.exists()) {
-                externalCandidates.add(File(downloadsDir, "HV_Financas_Backup_Atualizado.json"))
-                externalCandidates.add(File(downloadsDir, "hvfinancas_backup.json"))
-                externalCandidates.add(File(downloadsDir, "backup_hvfinancas_corrigido.json"))
-                externalCandidates.add(File(downloadsDir, "hvfinancas_v6_backup.json"))
-                externalCandidates.add(File(downloadsDir, "hvfinancas_v6.json"))
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        try {
-            val cacheBackup = File(context.cacheDir, "hvfinancas_backup.json")
-            if (cacheBackup.exists()) {
-                externalCandidates.add(cacheBackup)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        val allCandidates = (candidateLocations + externalCandidates).filter { it.exists() && it.isFile && it.length() > 50 }
-
-        if (allCandidates.isEmpty()) {
-            return null
-        }
-
-        // Avalia candidatos por contagem de itens de transação
-        var bestCandidate: File? = null
-        var maxItems = -1
-        var bestTimestamp = 0L
-
-        for (candidate in allCandidates) {
-            try {
-                val text = candidate.readText()
-                if (text.isBlank() || text.length <= 50) continue
-                val itemsCount = countTransactionItems(text)
-                val lastMod = candidate.lastModified()
-
-                if (itemsCount > maxItems) {
-                    maxItems = itemsCount
-                    bestTimestamp = lastMod
-                    bestCandidate = candidate
-                } else if (itemsCount == maxItems && lastMod > bestTimestamp) {
-                    bestTimestamp = lastMod
-                    bestCandidate = candidate
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        return bestCandidate ?: allCandidates.firstOrNull()
+        return Pair(ok, count)
     }
 
     private fun loadData() {
         initDefaultCategoriesAndTags()
         initDefaultCardsAndAccounts()
 
-        val existingFile = findBestDataFile()
-        if (existingFile != null) {
-            try {
-                val jsonString = existingFile.readText()
-                if (jsonString.isNotBlank() && jsonString.length > 50) {
-                    // 1. Cria imediatamente um clone de emergência intocado
-                    try {
-                        val emergencyFile = File(context.filesDir, "hvfinancas_emergency_recovery.json")
-                        existingFile.copyTo(emergencyFile, overwrite = true)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // 2. Faz o parse seguro à prova de falhas
-                    val parseOk = parseFullSavedJsonSafe(jsonString)
-                    if (parseOk) {
-                        checkAndApplyAutoYield()
-
-                        // 3. Garante que se o arquivo escolhido era um backup/versão anterior,
-                        // o arquivo principal ativo e os espelhos fiquem sincronizados
-                        saveToDisk()
-                        return
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        // 1. Varredura profunda com BackupManager em todas as camadas (SharedPreferences, filesDir, externalFiles, Downloads, etc.)
+        val bestJson = BackupManager.deepScanBestAvailableData(context)
+        if (!bestJson.isNullOrBlank()) {
+            val parseOk = parseFullSavedJsonSafe(bestJson)
+            if (parseOk) {
+                checkAndApplyAutoYield()
+                saveToDisk()
+                return
             }
-            // Se encontramos um arquivo do usuário no disco, NUNCA sobrescrevemos com dados em branco de asset!
-            android.util.Log.w("FinanceRepository", "Arquivo preexistente encontrado mas ocorreu falha. Abortando sobrescrita com dados vazios para proteger o usuário.")
-            return
         }
 
-        // Se for primeira vez absoluta (instalação limpa num aparelho novo sem nenhum dado anterior)
+        // 2. Se for primeira vez absoluta (instalação limpa num aparelho novo sem nenhum dado anterior em lugar nenhum)
         try {
             val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
             if (assetJson.trim().startsWith("{")) {
@@ -2003,35 +1851,8 @@ class FinanceRepository(private val context: Context) {
             rootObj.put("months", monthsArr)
 
             val jsonString = rootObj.toString()
-            atomicWrite(dataFile, jsonString)
-
-            // Espelhos de backup redundantes automáticos
-            try {
-                val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
-                atomicWrite(backupFile, jsonString)
-            } catch (e: Exception) {
-                // backup silencioso
-            }
-            try {
-                val extDir = context.getExternalFilesDir(null)
-                if (extDir != null) {
-                    val extBackup = File(extDir, "hvfinancas_v6_backup.json")
-                    atomicWrite(extBackup, jsonString)
-                    val extAuto = File(extDir, "hvfinancas_auto_backup.json")
-                    atomicWrite(extAuto, jsonString)
-                }
-            } catch (e: Exception) {
-                // backup silencioso
-            }
-            try {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (downloadsDir != null && downloadsDir.exists()) {
-                    val dlBackup = File(downloadsDir, "hvfinancas_backup.json")
-                    atomicWrite(dlBackup, jsonString)
-                }
-            } catch (e: Exception) {
-                // backup silencioso
-            }
+            BackupManager.atomicWrite(dataFile, jsonString)
+            BackupManager.saveContinuousSnapshot(context, jsonString)
         } catch (e: Exception) {
             e.printStackTrace()
         }

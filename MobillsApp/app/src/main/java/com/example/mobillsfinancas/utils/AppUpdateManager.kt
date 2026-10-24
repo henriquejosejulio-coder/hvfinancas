@@ -105,6 +105,17 @@ object AppUpdateManager {
         onError: (String) -> Unit
     ) = withContext(Dispatchers.IO) {
         try {
+            // CRÍTICO: Executa backup compulsório de segurança ANTES de qualquer download ou instalação de APK!
+            try {
+                val currentData = com.example.mobillsfinancas.data.FinanceRepository.getInstance(context).exportBackupJson()
+                if (currentData.isNotBlank() && currentData.length > 50) {
+                    BackupManager.createPreUpdateBackup(context, currentData)
+                    android.util.Log.i("AppUpdateManager", "Backup pré-atualização criado com sucesso antes de iniciar o download.")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AppUpdateManager", "Erro ao criar backup pré-atualização", e)
+            }
+
             val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
             val apkFile = File(updatesDir, "HVFinancas_update.apk")
             if (apkFile.exists()) {
