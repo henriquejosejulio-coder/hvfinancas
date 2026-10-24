@@ -91,20 +91,44 @@ class FinanceRepository(private val context: Context) {
         if (dataFile.exists()) {
             try {
                 val jsonString = dataFile.readText()
-                parseFullSavedJson(jsonString)
-                cleanupBogusCapturedTransactions()
-                reconcileCardAndAccountNames()
-                checkAndApplyAutoYield()
-                return
+                if (jsonString.isNotBlank() && jsonString.length > 50) {
+                    parseFullSavedJson(jsonString)
+                    cleanupBogusCapturedTransactions()
+                    reconcileCardAndAccountNames()
+                    checkAndApplyAutoYield()
+                    return
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        // Se for primeira vez, carrega o JSON parseado da planilha
+        // Tenta carregar do backup de segurança se o dataFile principal falhou
+        val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
+        if (backupFile.exists()) {
+            try {
+                val bkpString = backupFile.readText()
+                if (bkpString.isNotBlank() && bkpString.length > 50) {
+                    parseFullSavedJson(bkpString)
+                    cleanupBogusCapturedTransactions()
+                    reconcileCardAndAccountNames()
+                    checkAndApplyAutoYield()
+                    saveToDisk()
+                    return
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Se for primeira vez (ou instalaçao limpa), carrega o JSON embutido com os dados completos
         try {
             val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
-            parseExcelExtractedJson(assetJson)
+            if (assetJson.trim().startsWith("{")) {
+                parseFullSavedJson(assetJson)
+            } else {
+                parseExcelExtractedJson(assetJson)
+            }
             applyOctoberBackwardsPaidStatus()
             reconcileCardAndAccountNames()
             saveToDisk()
@@ -2153,6 +2177,14 @@ class FinanceRepository(private val context: Context) {
             rootObj.put("months", monthsArr)
 
             dataFile.writeText(rootObj.toString())
+
+            // Mantém cópia de segurança automática
+            try {
+                val backupFile = File(context.filesDir, "hvfinancas_v6_backup.json")
+                dataFile.copyTo(backupFile, overwrite = true)
+            } catch (e: Exception) {
+                // backup silencioso
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
