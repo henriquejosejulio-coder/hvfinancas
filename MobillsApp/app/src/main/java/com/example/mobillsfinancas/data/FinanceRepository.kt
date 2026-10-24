@@ -83,47 +83,102 @@ class FinanceRepository(private val context: Context) {
     }
 
     init {
-        loadData()
+        try {
+            loadData()
+        } catch (t: Throwable) {
+            android.util.Log.e("FinanceRepository", "Erro fatal ao inicializar FinanceRepository", t)
+            try {
+                createFallbackData()
+            } catch (t2: Throwable) {
+                t2.printStackTrace()
+            }
+        }
     }
 
     fun restoreFromBestAvailableSource(): Pair<Boolean, Int> {
-        val bestJson = BackupManager.deepScanBestAvailableData(context) ?: return Pair(false, 0)
-        val count = BackupManager.countItems(bestJson)
-        val ok = parseFullSavedJsonSafe(bestJson)
-        if (ok) {
-            checkAndApplyAutoYield()
-            saveToDisk()
+        return try {
+            val bestJson = BackupManager.deepScanBestAvailableData(context) ?: return Pair(false, 0)
+            val count = BackupManager.countItems(bestJson)
+            val ok = parseFullSavedJsonSafe(bestJson)
+            if (ok) {
+                checkAndApplyAutoYield()
+                saveToDisk()
+            }
+            Pair(ok, count)
+        } catch (t: Throwable) {
+            android.util.Log.e("FinanceRepository", "Erro ao restaurar de melhor backup", t)
+            Pair(false, 0)
         }
-        return Pair(ok, count)
     }
 
     private fun loadData() {
-        initDefaultCategoriesAndTags()
-        initDefaultCardsAndAccounts()
-
-        // 1. Varredura profunda com BackupManager em todas as camadas (SharedPreferences, filesDir, externalFiles, Downloads, etc.)
-        val bestJson = BackupManager.deepScanBestAvailableData(context)
-        if (!bestJson.isNullOrBlank()) {
-            val parseOk = parseFullSavedJsonSafe(bestJson)
-            if (parseOk) {
-                checkAndApplyAutoYield()
-                saveToDisk()
-                return
-            }
-        }
-
-        // 2. Se for primeira vez absoluta (instalação limpa num aparelho novo sem nenhum dado anterior em lugar nenhum)
         try {
-            val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
-            if (assetJson.trim().startsWith("{")) {
-                parseFullSavedJsonSafe(assetJson)
-            } else {
-                parseExcelExtractedJson(assetJson)
+            initDefaultCategoriesAndTags()
+            initDefaultCardsAndAccounts()
+
+            // 1. Tenta carregar o banco de dados principal do app (rápido e seguro)
+            var loaded = false
+            if (dataFile.exists() && dataFile.length() > 50) {
+                try {
+                    val json = dataFile.readText()
+                    if (parseFullSavedJsonSafe(json)) {
+                        val count = _monthDataMap.values.sumOf { it.items.size }
+                        if (count > 0) {
+                            loaded = true
+                            android.util.Log.i("FinanceRepository", "Dados principais carregados do dataFile ($count transações).")
+                        }
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("FinanceRepository", "Falha ao ler dataFile principal", t)
+                }
             }
-            saveToDisk()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            createFallbackData()
+
+            // 2. Se o arquivo principal não existia ou estava vazio (ex: atualização que limpou arquivos parciais),
+            // busca a melhor versão salva nos cofres de redundância (SharedPreferences Vault e backups espelhos)
+            if (!loaded) {
+                try {
+                    val bestJson = BackupManager.deepScanBestAvailableData(context)
+                    if (!bestJson.isNullOrBlank() && parseFullSavedJsonSafe(bestJson)) {
+                        loaded = true
+                        android.util.Log.i("FinanceRepository", "Dados recuperados com sucesso via varredura profunda de redundância.")
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("FinanceRepository", "Falha na varredura profunda de redundância", t)
+                }
+            }
+
+            // 3. Se ainda assim não houver dados (primeira instalação em aparelho novo), carrega modelo inicial neutro
+            if (!loaded) {
+                try {
+                    val assetJson = context.assets.open("dados_iniciais.json").bufferedReader().use { it.readText() }
+                    if (assetJson.trim().startsWith("{")) {
+                        parseFullSavedJsonSafe(assetJson)
+                    } else {
+                        parseExcelExtractedJson(assetJson)
+                    }
+                } catch (t: Throwable) {
+                    createFallbackData()
+                }
+            }
+
+            try {
+                checkAndApplyAutoYield()
+            } catch (t: Throwable) {
+                android.util.Log.e("FinanceRepository", "Erro em checkAndApplyAutoYield", t)
+            }
+
+            try {
+                saveToDisk()
+            } catch (t: Throwable) {
+                android.util.Log.e("FinanceRepository", "Erro em saveToDisk", t)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("FinanceRepository", "Erro geral em loadData", t)
+            try {
+                createFallbackData()
+            } catch (t2: Throwable) {
+                t2.printStackTrace()
+            }
         }
     }
 

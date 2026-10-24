@@ -39,8 +39,12 @@ class MainActivity : ComponentActivity() {
     }
 
     // Solicita execução em segundo plano sem restrições de bateria
-    if (!com.example.mobillsfinancas.utils.PermissionHelper.isIgnoringBatteryOptimizations(this)) {
-        com.example.mobillsfinancas.utils.PermissionHelper.requestIgnoreBatteryOptimizations(this)
+    try {
+        if (!com.example.mobillsfinancas.utils.PermissionHelper.isIgnoringBatteryOptimizations(this)) {
+            com.example.mobillsfinancas.utils.PermissionHelper.requestIgnoreBatteryOptimizations(this)
+        }
+    } catch (t: Throwable) {
+        Log.e("MainActivity", "Erro ao verificar ou solicitar ignoreBatteryOptimizations", t)
     }
 
     enableEdgeToEdge()

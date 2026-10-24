@@ -11,8 +11,8 @@ android {
         applicationId = "com.henriquevital.hvfinancas"
         minSdk = 24
         targetSdk = 36
-        versionCode = 55
-        versionName = "1.0.54"
+        versionCode = 56
+        versionName = "1.0.55"
     }
 
     signingConfigs {
@@ -43,6 +43,10 @@ android {
         aidl = false
         buildConfig = true
         shaders = false
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -83,6 +87,7 @@ dependencies {
   // Local tests: jUnit, coroutines, Android runner
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation("org.json:json:20240303")
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)

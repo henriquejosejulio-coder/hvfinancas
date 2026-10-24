@@ -76,9 +76,13 @@ class BankNotificationService : NotificationListenerService() {
 
     override fun onCreate() {
         super.onCreate()
-        repository = FinanceRepository.getInstance(applicationContext)
-        createNotificationChannel()
-        Log.d("BankNotificationService", "BankNotificationService iniciado com sucesso")
+        try {
+            repository = FinanceRepository.getInstance(applicationContext)
+            createNotificationChannel()
+            Log.d("BankNotificationService", "BankNotificationService iniciado com sucesso")
+        } catch (t: Throwable) {
+            Log.e("BankNotificationService", "Erro durante onCreate do serviço", t)
+        }
     }
 
     override fun onListenerConnected() {
