@@ -38,10 +38,13 @@ fun CategoryBreakdown(
     totalExpense: Double,
     hideValues: Boolean,
     onSetBudgetLimit: ((categoryId: String, limit: Double, reserveInBudget: Boolean) -> Unit)? = null,
-    onEditTransaction: ((TransactionItem) -> Unit)? = null
+    onEditTransaction: ((TransactionItem) -> Unit)? = null,
+    onAddCategory: ((CategoryItem) -> Unit)? = null
 ) {
     var selectedCategoryForBudget by remember { mutableStateOf<CategoryItem?>(null) }
     var viewingCategoryDetails by remember { mutableStateOf<CategoryItem?>(null) }
+    var showChooseCategoryDialog by remember { mutableStateOf(false) }
+    var showCreateCategoryDialog by remember { mutableStateOf(false) }
     var budgetInputTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
     val budgetInputText = budgetInputTextFieldValue.text
 
@@ -92,8 +95,6 @@ fun CategoryBreakdown(
         }
     }
 
-    if (displayCategories.isEmpty()) return
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -119,7 +120,9 @@ fun CategoryBreakdown(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = if (filterMode == 0) {
+                        text = if (displayCategories.isEmpty()) {
+                            "Defina limites mensais para suas categorias"
+                        } else if (filterMode == 0) {
                             "Despesas computadas no teto mensal"
                         } else {
                             "100% dos gastos reais do mês"
@@ -129,25 +132,82 @@ fun CategoryBreakdown(
                     )
                 }
 
-                if (filterMode == 0 && totalSpentExcluded > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF64748B).copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "+ ${Formatters.formatMoney(totalSpentExcluded, hideValues)} fora",
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF64748B)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onSetBudgetLimit != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MobillsGreenPrimary.copy(alpha = 0.12f),
+                            modifier = Modifier
+                                .clickable { showChooseCategoryDialog = true }
+                                .padding(end = if (filterMode == 0 && totalSpentExcluded > 0) 6.dp else 0.dp)
+                        ) {
+                            Text(
+                                text = "➕ Definir Teto",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MobillsGreenPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
+                    if (filterMode == 0 && totalSpentExcluded > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF64748B).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "+ ${Formatters.formatMoney(totalSpentExcluded, hideValues)} fora",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF64748B)
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            if (displayCategories.isEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .padding(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("🎯", fontSize = 36.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Nenhum teto de gastos cadastrado ainda",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Você pode cadastrar tetos para Alimentação, Lazer, etc., antes mesmo de ter despesas lançadas no mês!",
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (onSetBudgetLimit != null) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = { showChooseCategoryDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("➕ Cadastrar Primeiro Teto", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(10.dp))
 
-            // Ideia 1: Alternador com 1 toque entre "No Teto" e "Total Geral"
+                // Ideia 1: Alternador com 1 toque entre "No Teto" e "Total Geral"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -440,8 +500,21 @@ fun CategoryBreakdown(
                     }
                 }
             }
+
+            if (onSetBudgetLimit != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { showChooseCategoryDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MobillsGreenPrimary)
+                ) {
+                    Text("➕ Definir Teto para Outra Categoria", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
         }
     }
+}
 
     // --- DIÁLOGO DE DETALHES DOS GASTOS DA CATEGORIA ---
     viewingCategoryDetails?.let { cat ->
@@ -931,5 +1004,213 @@ fun CategoryBreakdown(
                 }
             }
         }
+    }
+
+    // --- DIÁLOGO PARA SELECIONAR QUAL CATEGORIA TERÁ O TETO DEFINIDO ---
+    if (showChooseCategoryDialog) {
+        var searchQuery by remember { mutableStateOf("") }
+        val expenseCategories = remember(categories, searchQuery) {
+            categories.filter { it.isExpense && (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true)) }
+                .sortedWith(
+                    compareByDescending<CategoryItem> { it.budgetLimit > 0 }
+                        .thenBy { it.name }
+                )
+        }
+
+        Dialog(onDismissRequest = { showChooseCategoryDialog = false }) {
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.82f)
+                    .padding(vertical = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🎯 Escolher Categoria",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MobillsGreenPrimary
+                            )
+                            Text(
+                                text = "Defina ou ajuste o teto mensal de gastos",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { showChooseCategoryDialog = false }) {
+                            Text("✕", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Buscar categoria...") },
+                        leadingIcon = { Text("🔍") },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Text("✕", fontSize = 12.sp)
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (onAddCategory != null) {
+                        OutlinedButton(
+                            onClick = {
+                                showChooseCategoryDialog = false
+                                showCreateCategoryDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(vertical = 6.dp)
+                        ) {
+                            Text("➕ Criar Nova Categoria", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MobillsGreenPrimary)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (expenseCategories.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("📂", fontSize = 36.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = if (searchQuery.isNotBlank()) "Nenhuma categoria encontrada para '$searchQuery'" else "Nenhuma categoria de despesa cadastrada.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(expenseCategories, key = { it.id }) { cat ->
+                                val hasBudget = cat.budgetLimit > 0
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedCategoryForBudget = cat
+                                            budgetInputTextFieldValue = Formatters.toCurrencyTextFieldValue(cat.budgetLimit)
+                                            showChooseCategoryDialog = false
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(cat.colorHex).copy(alpha = 0.2f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(cat.iconEmoji, fontSize = 18.sp)
+                                            }
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = cat.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = if (hasBudget) {
+                                                        "Teto: ${Formatters.formatMoney(cat.budgetLimit, false)} / mês"
+                                                    } else {
+                                                        "Sem teto definido"
+                                                    },
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (hasBudget) MobillsGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontWeight = if (hasBudget) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (hasBudget) MobillsGreenPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = if (hasBudget) "✏️ Editar" else "🎯 Definir",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (hasBudget) MobillsGreenPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = { showChooseCategoryDialog = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Fechar", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+
+    // Diálogo para criar nova categoria on-the-fly
+    if (showCreateCategoryDialog) {
+        com.example.mobillsfinancas.ui.screens.AddCategoryDialog(
+            onDismiss = { showCreateCategoryDialog = false },
+            onConfirm = { newCat ->
+                onAddCategory?.invoke(newCat)
+                showCreateCategoryDialog = false
+                selectedCategoryForBudget = newCat
+                budgetInputTextFieldValue = Formatters.toCurrencyTextFieldValue(0.0)
+            }
+        )
     }
 }

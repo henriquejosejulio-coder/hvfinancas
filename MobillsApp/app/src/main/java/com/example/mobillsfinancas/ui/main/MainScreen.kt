@@ -321,7 +321,12 @@ fun MainScreen(
                     },
                     onNavigateToExtrato = {
                         selectedTab = 1
-                    }
+                    },
+                    isAutoYieldEnabled = viewModel.isAutoApplyYieldEnabled(),
+                    onApplyYields = { viewModel.applyDailyYields(it) },
+                    onToggleAutoYield = { viewModel.setAutoApplyYield(it) },
+                    onDirectBalanceUpdate = { acc, newBal -> viewModel.updateAccount(acc.copy(balance = newBal)) },
+                    onAddCategory = { viewModel.addCategory(it) }
                 )
                 1 -> TransactionsTab(
                     currentMonthData = currentMonthData,
@@ -354,8 +359,10 @@ fun MainScreen(
                     categories = categories,
                     tags = tags,
                     onAddCategory = { viewModel.addCategory(it) },
+                    onUpdateCategory = { viewModel.updateCategory(it) },
                     onDeleteCategory = { viewModel.deleteCategory(it) },
                     onAddTag = { viewModel.addTag(it) },
+                    onUpdateTag = { viewModel.updateTag(it) },
                     onDeleteTag = { viewModel.deleteTag(it) }
                 )
                 4 -> BankIntegrationScreen(
@@ -1174,7 +1181,12 @@ fun DashboardTab(
     categories: List<com.example.mobillsfinancas.data.CategoryItem> = emptyList(),
     onSetBudgetLimit: (String, Double, Boolean) -> Unit = { _, _, _ -> },
     onRequestNotificationPermission: () -> Unit,
-    onNavigateToExtrato: () -> Unit = {}
+    onNavigateToExtrato: () -> Unit = {},
+    isAutoYieldEnabled: Boolean = true,
+    onApplyYields: (Map<String, Double>) -> Unit = {},
+    onToggleAutoYield: (Boolean) -> Unit = {},
+    onDirectBalanceUpdate: (AccountItem, Double) -> Unit = { _, _ -> },
+    onAddCategory: ((com.example.mobillsfinancas.data.CategoryItem) -> Unit)? = null
 ) {
     val items = currentMonthData?.items ?: emptyList()
     val totalExp = currentMonthData?.totalExpense ?: 0.0
@@ -1317,11 +1329,15 @@ fun DashboardTab(
                 accounts = accounts,
                 hideValues = hideValues,
                 pendingCofrinhoTransfers = pendingCofrinhoTransfers,
+                isAutoYieldEnabled = isAutoYieldEnabled,
                 onEditAccount = onEditAccount,
                 onAddAccount = onAddAccount,
                 onTransfer = onTransfer,
                 onAdjustBalance = { onAdjustBalance(2) },
-                onReorderAccounts = onReorderAccounts
+                onReorderAccounts = onReorderAccounts,
+                onApplyYields = onApplyYields,
+                onToggleAutoYield = onToggleAutoYield,
+                onDirectBalanceUpdate = onDirectBalanceUpdate
             )
         }
 
@@ -1346,7 +1362,8 @@ fun DashboardTab(
                 totalExpense = totalExp,
                 hideValues = hideValues,
                 onSetBudgetLimit = onSetBudgetLimit,
-                onEditTransaction = onEditTransaction
+                onEditTransaction = onEditTransaction,
+                onAddCategory = onAddCategory
             )
         }
 

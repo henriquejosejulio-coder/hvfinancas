@@ -122,6 +122,22 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         repository.deleteAccount(accountId)
     }
 
+    fun applyDailyYields(yields: Map<String, Double>) {
+        repository.applyDailyYields(yields)
+    }
+
+    fun setAutoApplyYield(enabled: Boolean) {
+        repository.setAutoApplyYield(enabled)
+    }
+
+    fun isAutoApplyYieldEnabled(): Boolean {
+        return repository.isAutoApplyYieldEnabled()
+    }
+
+    fun getLastYieldDate(): String {
+        return repository.getLastYieldDate()
+    }
+
     fun reorderAccounts(newAccounts: List<AccountItem>) {
         repository.reorderAccounts(newAccounts)
     }
@@ -146,6 +162,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         repository.addCategory(category)
     }
 
+    fun updateCategory(category: CategoryItem) {
+        repository.updateCategory(category)
+    }
+
     fun updateCategoryBudget(categoryId: String, budget: Double, reserveInBudget: Boolean = true) {
         repository.updateCategoryBudget(categoryId, budget, reserveInBudget)
     }
@@ -156,6 +176,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun addTag(tag: TagItem) {
         repository.addTag(tag)
+    }
+
+    fun updateTag(tag: TagItem) {
+        repository.updateTag(tag)
     }
 
     fun deleteTag(id: String) {

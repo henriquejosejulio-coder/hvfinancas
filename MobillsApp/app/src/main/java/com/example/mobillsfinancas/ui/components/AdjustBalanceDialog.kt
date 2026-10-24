@@ -441,6 +441,20 @@ fun AdjustBalanceDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    val isMpChecking = editingAccount!!.name.contains("Mercado Pago", ignoreCase = true) && editingAccount!!.includeInOverallBalance
+                    val isMpCofrinho = (editingAccount!!.name.contains("Cofrinho", ignoreCase = true) || editingAccount!!.name.contains("Reserva", ignoreCase = true)) && !editingAccount!!.includeInOverallBalance
+                    if (isMpChecking || isMpCofrinho) {
+                        val quickVal = if (isMpChecking) 212.31 else 429.10
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                accountBalanceTextFieldValue = Formatters.toCurrencyTextFieldValue(quickVal)
+                            },
+                            label = { Text("🎯 Bater com extrato real: ${Formatters.formatMoney(quickVal)}", fontSize = 11.sp) }
+                        )
+                    }
                 }
             },
             confirmButton = {

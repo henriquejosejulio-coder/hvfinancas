@@ -408,7 +408,7 @@ fun EditAccountDialog(
                                 ) {
                                     Column(modifier = Modifier.padding(8.dp)) {
                                         Text(
-                                            text = "💰 Estimativa com CDI atual (~10,65% a.a.):",
+                                            text = "💰 Estimativa líquida real (CDI ~13,65% a.a.):",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF166534)

@@ -32,15 +32,20 @@ fun AccountsSection(
     accounts: List<AccountItem>,
     hideValues: Boolean,
     pendingCofrinhoTransfers: Double = 0.0,
+    isAutoYieldEnabled: Boolean = true,
     onEditAccount: (AccountItem) -> Unit,
     onAddAccount: () -> Unit,
     onTransfer: () -> Unit,
     onAdjustBalance: (() -> Unit)? = null,
-    onReorderAccounts: ((List<AccountItem>) -> Unit)? = null
+    onReorderAccounts: ((List<AccountItem>) -> Unit)? = null,
+    onApplyYields: ((Map<String, Double>) -> Unit)? = null,
+    onToggleAutoYield: ((Boolean) -> Unit)? = null,
+    onDirectBalanceUpdate: ((AccountItem, Double) -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     var quickReorderAccount by remember { mutableStateOf<AccountItem?>(null) }
     var showFullReorderDialog by remember { mutableStateOf(false) }
+    var showYieldDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
@@ -109,27 +114,41 @@ fun AccountsSection(
             }
         }
 
-        // Barra de Ações Rápidas de Bancos (Transferência e Ajuste)
+        // Barra de Ações Rápidas de Bancos (Transferência, Rendimento e Ajuste)
+        val hasYieldAccounts = accounts.any { it.cdiRatePercentage > 0.0 && it.balance > 0.0 }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Button(
                 onClick = onTransfer,
-                modifier = Modifier.weight(1.2f),
-                colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
             ) {
-                Text("⇄ Transferência entre Contas", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                Text("⇄ Transferir", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+            }
+
+            if (hasYieldAccounts) {
+                Button(
+                    onClick = { showYieldDialog = true },
+                    modifier = Modifier.weight(1.1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0369A1)),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                ) {
+                    Text("📈 Rendimentos", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+                }
             }
 
             if (onAdjustBalance != null) {
                 OutlinedButton(
                     onClick = onAdjustBalance,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(0.9f),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
                 ) {
-                    Text("⚖️ Acertar Saldo", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("⚖️ Acertar", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                 }
             }
         }
@@ -222,12 +241,21 @@ fun AccountsSection(
                         if (acc.cdiRatePercentage > 0.0 && acc.balance > 0.0) {
                             Spacer(modifier = Modifier.height(2.dp))
                             val estMonthly = acc.calculateMonthlyYield()
+                            val estDaily = acc.calculateDailyYield()
                             Text(
                                 text = "📈 Rende ~${Formatters.formatMoney(estMonthly, hideValues)}/mês",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
                                 color = MobillsGreenPrimary,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "⚡ +${Formatters.formatMoney(estDaily, hideValues)} por dia útil",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 9.sp,
+                                color = Color(0xFF0284C7),
                                 maxLines = 1
                             )
                         }
@@ -413,6 +441,22 @@ fun AccountsSection(
                 onReorderAccounts?.invoke(updated)
                 showFullReorderDialog = false
             }
+        )
+    }
+
+    if (showYieldDialog) {
+        YieldDialog(
+            accounts = accounts,
+            isAutoYieldEnabled = isAutoYieldEnabled,
+            onToggleAutoYield = { onToggleAutoYield?.invoke(it) },
+            onApplyYields = { yields ->
+                onApplyYields?.invoke(yields)
+                showYieldDialog = false
+            },
+            onDirectBalanceUpdate = { acc, newBal ->
+                onDirectBalanceUpdate?.invoke(acc, newBal)
+            },
+            onDismiss = { showYieldDialog = false }
         )
     }
 }

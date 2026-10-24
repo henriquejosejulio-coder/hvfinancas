@@ -94,6 +94,7 @@ class FinanceRepository(private val context: Context) {
                 parseFullSavedJson(jsonString)
                 cleanupBogusCapturedTransactions()
                 reconcileCardAndAccountNames()
+                checkAndApplyAutoYield()
                 return
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -269,7 +270,11 @@ class FinanceRepository(private val context: Context) {
         var modified = false
         for ((mKey, mData) in _monthDataMap) {
             val invalidItems = mData.items.filter { item ->
-                item.description.equals("novembro", ignoreCase = true) && item.amount in 447.0..450.0
+                (item.description.equals("novembro", ignoreCase = true) && item.amount in 447.0..450.0) ||
+                item.description.contains("negada", ignoreCase = true) ||
+                item.description.contains("recusada", ignoreCase = true) ||
+                item.description.contains("revisada", ignoreCase = true) ||
+                item.description.contains("cancelada", ignoreCase = true)
             }
             if (invalidItems.isNotEmpty()) {
                 val newItems = mData.items.filterNot { it in invalidItems }
@@ -282,7 +287,11 @@ class FinanceRepository(private val context: Context) {
             saveToDisk()
         }
         _recentCapturedTransactions.value = _recentCapturedTransactions.value.filterNot {
-            it.description.equals("novembro", ignoreCase = true) && it.amount in 447.0..450.0
+            (it.description.equals("novembro", ignoreCase = true) && it.amount in 447.0..450.0) ||
+            it.description.contains("negada", ignoreCase = true) ||
+            it.description.contains("recusada", ignoreCase = true) ||
+            it.description.contains("revisada", ignoreCase = true) ||
+            it.description.contains("cancelada", ignoreCase = true)
         }
     }
 
@@ -319,7 +328,29 @@ class FinanceRepository(private val context: Context) {
     }
 
     fun updateCategory(updated: CategoryItem) {
+        val oldCat = _categories.value.find { it.id == updated.id }
         _categories.value = _categories.value.map { if (it.id == updated.id) updated else it }
+        if (oldCat != null && (oldCat.name != updated.name || oldCat.iconEmoji != updated.iconEmoji || oldCat.colorHex != updated.colorHex)) {
+            for ((mYear, mData) in _monthDataMap) {
+                var changed = false
+                val updatedItems = mData.items.map { item ->
+                    if (item.category.equals(oldCat.name, ignoreCase = true)) {
+                        changed = true
+                        item.copy(
+                            category = updated.name,
+                            categoryIcon = updated.iconEmoji,
+                            categoryColorHex = updated.colorHex
+                        )
+                    } else {
+                        item
+                    }
+                }
+                if (changed) {
+                    _monthDataMap[mYear] = mData.copy(items = updatedItems, lastModified = System.currentTimeMillis())
+                }
+            }
+        }
+        recalculateAllMonths()
         saveToDisk()
     }
 
@@ -339,6 +370,29 @@ class FinanceRepository(private val context: Context) {
     // --- Tags CRUD ---
     fun addTag(tag: TagItem) {
         _tags.value = _tags.value + tag
+        saveToDisk()
+    }
+
+    fun updateTag(updated: TagItem) {
+        val oldTag = _tags.value.find { it.id == updated.id }
+        _tags.value = _tags.value.map { if (it.id == updated.id) updated else it }
+        if (oldTag != null && oldTag.name != updated.name) {
+            for ((mYear, mData) in _monthDataMap) {
+                var changed = false
+                val updatedItems = mData.items.map { item ->
+                    if (item.tags.any { it.equals(oldTag.name, ignoreCase = true) }) {
+                        changed = true
+                        item.copy(tags = item.tags.map { if (it.equals(oldTag.name, ignoreCase = true)) updated.name else it })
+                    } else {
+                        item
+                    }
+                }
+                if (changed) {
+                    _monthDataMap[mYear] = mData.copy(items = updatedItems, lastModified = System.currentTimeMillis())
+                }
+            }
+        }
+        recalculateAllMonths()
         saveToDisk()
     }
 
@@ -420,11 +474,75 @@ class FinanceRepository(private val context: Context) {
         saveToDisk()
     }
 
+    private val prefs by lazy {
+        context.getSharedPreferences("hvfinancas_prefs", Context.MODE_PRIVATE)
+    }
+
+    fun isAutoApplyYieldEnabled(): Boolean {
+        return prefs.getBoolean("auto_apply_yield_enabled", true)
+    }
+
+    fun setAutoApplyYield(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_apply_yield_enabled", enabled).apply()
+    }
+
+    fun getLastYieldDate(): String {
+        return prefs.getString("last_yield_date", "") ?: ""
+    }
+
+    fun applyDailyYields(yields: Map<String, Double>) {
+        if (yields.isEmpty()) return
+        val currentAccs = _accounts.value
+        _accounts.value = currentAccs.map { acc ->
+            val yield = yields[acc.id] ?: 0.0
+            if (yield > 0.0) {
+                val newBal = Math.round((acc.balance + yield) * 100.0) / 100.0
+                acc.copy(balance = newBal)
+            } else {
+                acc
+            }
+        }
+        val cal = Calendar.getInstance()
+        val todayStr = String.format("%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+        prefs.edit().putString("last_yield_date", todayStr).apply()
+        saveToDisk()
+    }
+
+    fun checkAndApplyAutoYield(): Map<String, Double> {
+        if (!isAutoApplyYieldEnabled()) return emptyMap()
+        val cal = Calendar.getInstance()
+        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+        // Apenas dias úteis (Segunda a Sexta)
+        if (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY) {
+            return emptyMap()
+        }
+        val todayStr = String.format("%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+        val lastDate = prefs.getString("last_yield_date", "") ?: ""
+        if (lastDate == todayStr) {
+            return emptyMap()
+        }
+
+        val yields = mutableMapOf<String, Double>()
+        for (acc in _accounts.value) {
+            if (acc.cdiRatePercentage > 0.0 && acc.balance > 0.0) {
+                val daily = acc.calculateDailyYield()
+                if (daily > 0.0) {
+                    yields[acc.id] = daily
+                }
+            }
+        }
+
+        if (yields.isNotEmpty()) {
+            applyDailyYields(yields)
+        }
+        return yields
+    }
+
     fun findMatchingAccount(nameOrMethod: String, fallbackToDefault: Boolean = false): AccountItem? {
         val clean = nameOrMethod.lowercase().trim()
         val bankInfo = BankRegistry.findBankByName(nameOrMethod)
 
-        val found = _accounts.value.find { acc ->
+        val matching = _accounts.value.filter { acc ->
             val accName = acc.name.lowercase().trim()
             accName == clean ||
             accName.contains(clean) ||
@@ -435,6 +553,11 @@ class FinanceRepository(private val context: Context) {
                 bankInfo.keywords.any { kw -> accName.contains(kw, ignoreCase = true) }
             ))
         }
+
+        // Prioriza a conta principal/padrão que faça parte do saldo livre (evita debitar de cofrinhos ou reservas)
+        val found = matching.find { it.isDefault && it.includeInOverallBalance }
+            ?: matching.find { it.includeInOverallBalance }
+            ?: matching.firstOrNull()
 
         return if (fallbackToDefault) {
             found ?: getDefaultAccount() ?: _accounts.value.firstOrNull()

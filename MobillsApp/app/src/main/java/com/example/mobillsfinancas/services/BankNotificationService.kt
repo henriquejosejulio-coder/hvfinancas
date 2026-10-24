@@ -251,8 +251,14 @@ class BankNotificationService : NotificationListenerService() {
                 fullContent.contains("estorno", ignoreCase = true) ||
                 (fullContent.contains("você recebeu", ignoreCase = true) && !fullContent.contains("fatura", ignoreCase = true))
 
-        // B) É Pix Enviado / Transferência Enviada?
+        // B) É Pix Enviado / Transferência Enviada? (Bancos, Gmail e e-mails de confirmação)
         val isPixEnviado = fullContent.contains("Pix enviado", ignoreCase = true) ||
+                fullContent.contains("Pix foi enviado", ignoreCase = true) ||
+                fullContent.contains("Seu Pix foi enviado", ignoreCase = true) ||
+                fullContent.contains("Seu Pix de", ignoreCase = true) ||
+                fullContent.contains("Pix de R$", ignoreCase = true) ||
+                fullContent.contains("comprovante de Pix", ignoreCase = true) ||
+                fullContent.contains("comprovante Pix", ignoreCase = true) ||
                 fullContent.contains("enviou um Pix", ignoreCase = true) ||
                 fullContent.contains("você transferiu", ignoreCase = true) ||
                 fullContent.contains("voce transferiu", ignoreCase = true) ||
@@ -260,6 +266,8 @@ class BankNotificationService : NotificationListenerService() {
                 fullContent.contains("transferencia enviada", ignoreCase = true) ||
                 fullContent.contains("transferência realizada", ignoreCase = true) ||
                 fullContent.contains("transferencia realizada", ignoreCase = true) ||
+                fullContent.contains("transferência concluída", ignoreCase = true) ||
+                fullContent.contains("transferencia concluida", ignoreCase = true) ||
                 fullContent.contains("pagou com Pix", ignoreCase = true) ||
                 fullContent.contains("Pix realizado", ignoreCase = true) ||
                 fullContent.contains("Pix feito", ignoreCase = true) ||
@@ -570,16 +578,58 @@ class BankNotificationService : NotificationListenerService() {
         val mPara = paraPattern.matcher(text)
         if (mPara.find()) {
             val cand = mPara.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 7. Padrão de e-mail / notificação do Gmail do Mercado Pago e outros bancos:
+        // "Seu Pix de R$ 6,94 foi enviado Sexta-feira, 23 de outubro de 2026, às 21:39:57. UBER DO BRASIL TECNOLOGIA LTDA. CPF/CNPJ: ..."
+        val mpEmailPattern = Pattern.compile(
+            "(?:às|as)\\s+\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*CPF|\\s+CPF|CPF/CNPJ|\\.|\\$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mMpEmail = mpEmailPattern.matcher(text)
+        if (mMpEmail.find()) {
+            val cand = mMpEmail.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 8. Padrão alternativo de e-mail Pix enviado: "... foi enviado. [Estabelecimento]. CPF/CNPJ"
+        val pixEmailPattern = Pattern.compile(
+            "(?:foi enviado|enviado)\\.?\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*CPF|\\s+CPF|CPF/CNPJ|\\.|\\$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mPixEmail = pixEmailPattern.matcher(text)
+        if (mPixEmail.find()) {
+            val cand = mPixEmail.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
         val storePattern = Pattern.compile("(?:em|no|na|para|de)\\s+([A-Za-z0-9\\s\\.\\*\\-]+?)(?:\\s+no\\s+seu|\\s+com|\\s+às|\\s+as|\\s+em|\\.|$)")
         val matcher = storePattern.matcher(text)
         if (matcher.find()) {
             val candidate = matcher.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(candidate)) return candidate
+            if (isValidStoreCandidate(candidate)) return cleanStoreName(candidate)
         }
         return ""
+    }
+
+    private fun cleanStoreName(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.contains("UBER", ignoreCase = true)) {
+            return "Uber"
+        }
+        if (trimmed.contains("99APP", ignoreCase = true) || trimmed.contains("99 TECNOLOGIA", ignoreCase = true)) {
+            return "99"
+        }
+        if (trimmed.contains("IFOOD", ignoreCase = true)) {
+            return "iFood"
+        }
+        // Remove termos empresariais que costumam poluir a descrição de comprovantes bancários
+        val cleaned = trimmed
+            .replace(Regex("(?i)\\b(TECNOLOGIA LTDA|INSTITUICAO DE PAGAMENTO|PAGAMENTOS|TECNOLOGIA|LTDA|S\\.A\\.|SA|ME|EPP)\\b"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return cleaned.ifEmpty { trimmed }
     }
 
     private fun isNonTransactionNotification(content: String): Boolean {
@@ -645,11 +695,43 @@ class BankNotificationService : NotificationListenerService() {
         )
         if (securityKeywords.any { lower.contains(it) }) return true
 
+        // 7. Compras negadas, recusadas, canceladas, em revisão/análise ou limite/saldo insuficiente
+        val deniedOrReviewKeywords = listOf(
+            "negada", "negado", "recusada", "recusado", "recusamos", "não autorizada", "nao autorizada",
+            "não aprovada", "nao aprovada", "não foi aprovada", "nao foi aprovada", "não autorizamos", "nao autorizamos",
+            "compra não autorizada", "compra nao autorizada", "transação não autorizada", "transacao nao autorizada",
+            "compra negada", "crédito negado", "credito negado", "débito negado", "debito negado",
+            "compra no crédito negada", "compra no credito negada", "compra no débito negada", "compra no debito negada",
+            "compra cancelada", "pagamento cancelado", "transação cancelada", "transacao cancelada",
+            "compra foi cancelada", "compra estornada", "estorno de compra", "compra estorno",
+            "compra revisada", "transação revisada", "transacao revisada", "revisada", "revisado",
+            "em revisão", "em revisao", "em análise", "em analise", "sob análise", "sob analise",
+            "limite não é suficiente", "limite nao e suficiente", "limite insuficiente", "limite não suficiente", "limite nao suficiente",
+            "pois o limite disponível não é suficiente", "pois o limite disponivel nao e suficiente",
+            "saldo insuficiente", "saldo não é suficiente", "saldo nao e suficiente",
+            "cartão bloqueado", "cartao bloqueado", "cartão está bloqueado", "cartao esta bloqueado",
+            "bloqueio temporário", "bloqueio temporario", "bloqueamos seu cartão", "bloqueamos seu cartao",
+            "suspeita de fraude", "compra suspeita", "transação suspeita", "transacao suspeita",
+            "você reconhece", "voce reconhece", "não reconhece", "nao reconhece", "foi você?", "foi voce?"
+        )
+        if (deniedOrReviewKeywords.any { lower.contains(it) }) return true
+
         return false
     }
 
     private fun isValidTransactionConfirmation(content: String): Boolean {
         val lower = content.lowercase()
+
+        // Barreira primária: Compras negadas, recusadas, canceladas ou em revisão JAMAIS são confirmadas
+        val deniedOrCancelKeywords = listOf(
+            "negada", "negado", "recusada", "recusado", "recusamos",
+            "não autorizada", "nao autorizada", "não aprovada", "nao aprovada",
+            "não foi aprovada", "nao foi aprovada", "cancelada", "cancelado",
+            "compra cancelada", "compra estornada", "revisada", "revisado", "em revisão", "em revisao",
+            "em análise", "em analise", "limite insuficiente", "limite disponível não é suficiente",
+            "limite disponivel nao e suficiente", "saldo insuficiente", "cartão bloqueado", "cartao bloqueado"
+        )
+        if (deniedOrCancelKeywords.any { lower.contains(it) }) return false
 
         // 1. Compras no cartão ou pagamentos efetuados
         val isPurchaseOrPayment = lower.contains("compra aprovada") ||
@@ -680,8 +762,17 @@ class BankNotificationService : NotificationListenerService() {
 
         if (isPurchaseOrPayment) return true
 
-        // 2. Pix enviado ou transferência enviada
+        // 2. Pix enviado ou transferência enviada (bancos, Gmail, e-mails de comprovante)
         val isTransferSent = lower.contains("pix enviado") ||
+                lower.contains("pix foi enviado") ||
+                lower.contains("seu pix foi enviado") ||
+                lower.contains("seu pix de r$") ||
+                lower.contains("seu pix de") ||
+                lower.contains("pix de r$") ||
+                lower.contains("comprovante de pix") ||
+                lower.contains("comprovante pix") ||
+                lower.contains("transferência concluída") ||
+                lower.contains("transferencia concluida") ||
                 lower.contains("enviou um pix") ||
                 lower.contains("você transferiu") ||
                 lower.contains("voce transferiu") ||

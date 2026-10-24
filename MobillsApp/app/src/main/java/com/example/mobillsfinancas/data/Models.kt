@@ -109,18 +109,37 @@ data class AccountItem(
     val includeInOverallBalance: Boolean = true, // false para Cofrinhos, Reservas e Investimentos (não somam no saldo livre)
     val cdiRatePercentage: Double = 0.0 // Ex: 115.0 para 115% do CDI (Mercado Pago), 100.0 para 100% do CDI
 ) {
-    fun calculateMonthlyYield(annualCdiRate: Double = 10.65, businessDaysCount: Int = 21): Double {
+    /**
+     * Calcula o rendimento mensal estimado líquido (já descontado o IR médio retido na fonte de 20%).
+     * CDI atual de mercado: ~13,65% a.a. (Selic 13,75%).
+     * No Mercado Pago (115% CDI líquido): rende ~R$ 0,10/dia útil a cada ~R$ 212 e ~R$ 0,20/dia útil a cada ~R$ 429.
+     */
+    fun calculateMonthlyYield(
+        annualCdiRate: Double = 13.65,
+        businessDaysCount: Int = 22,
+        irRate: Double = 0.20
+    ): Double {
         if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
-        val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
-        val dailyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 252.0) - 1.0
+        val grossAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
+        val netAnnualRate = grossAnnualRate * (1.0 - irRate)
+        val dailyRate = Math.pow(1.0 + netAnnualRate, 1.0 / 252.0) - 1.0
         return balance * (Math.pow(1.0 + dailyRate, businessDaysCount.toDouble()) - 1.0)
     }
 
-    fun calculateDailyYield(annualCdiRate: Double = 10.65, isBusinessDay: Boolean = true): Double {
+    /**
+     * Calcula o rendimento diário estimado líquido por dia útil (arredondado para centavos reais).
+     */
+    fun calculateDailyYield(
+        annualCdiRate: Double = 13.65,
+        isBusinessDay: Boolean = true,
+        irRate: Double = 0.20
+    ): Double {
         if (balance <= 0 || cdiRatePercentage <= 0 || !isBusinessDay) return 0.0
-        val effectiveAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
-        val dailyRate = Math.pow(1.0 + effectiveAnnualRate, 1.0 / 252.0) - 1.0
-        return balance * dailyRate
+        val grossAnnualRate = (annualCdiRate * (cdiRatePercentage / 100.0)) / 100.0
+        val netAnnualRate = grossAnnualRate * (1.0 - irRate)
+        val dailyRate = Math.pow(1.0 + netAnnualRate, 1.0 / 252.0) - 1.0
+        val raw = balance * dailyRate
+        return Math.round(raw * 100.0) / 100.0
     }
 }
 
