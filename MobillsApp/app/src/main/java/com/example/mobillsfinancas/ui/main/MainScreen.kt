@@ -117,6 +117,15 @@ fun MainScreen(
     var editingAccount by remember { mutableStateOf<AccountItem?>(null) }
     var showAddAccountDialog by remember { mutableStateOf(false) }
     var showTransferDialog by remember { mutableStateOf(false) }
+    var editingTransferItem by remember { mutableStateOf<TransactionItem?>(null) }
+
+    val handleEditTransaction: (TransactionItem) -> Unit = { item ->
+        if (item.type == TransactionType.TRANSFER) {
+            editingTransferItem = item
+        } else {
+            editingTransaction = item
+        }
+    }
 
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
@@ -192,7 +201,7 @@ fun MainScreen(
                                 (totalBalance - pendingCofrinhoTransfers).coerceAtLeast(0.0)
                             }
                             Text(
-                                text = "Saldo: ${Formatters.formatMoney(effectiveTotalBalance, viewModel.hideValues)}",
+                                text = "Saldo em Conta: ${Formatters.formatMoney(effectiveTotalBalance, viewModel.hideValues)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -293,7 +302,7 @@ fun MainScreen(
                     hideValues = viewModel.hideValues,
                     onSelectMonth = { viewModel.selectMonth(it) },
                     getCardInvoice = { viewModel.getCardInvoice(it) },
-                    onEditTransaction = { editingTransaction = it },
+                    onEditTransaction = handleEditTransaction,
                     onToggleStatus = { viewModel.toggleStatus(it) },
                     onDeleteTransaction = { viewModel.deleteTransaction(it) },
                     onEditCard = { editingCard = it },
@@ -341,7 +350,7 @@ fun MainScreen(
                     selectedMonth = selectedMonth,
                     hideValues = viewModel.hideValues,
                     onSelectMonth = { viewModel.selectMonth(it) },
-                    onEditTransaction = { editingTransaction = it },
+                    onEditTransaction = handleEditTransaction,
                     onToggleStatus = { viewModel.toggleStatus(it) },
                     onDeleteTransaction = { viewModel.deleteTransaction(it) },
                     onClearCurrentMonth = { viewModel.clearCurrentMonthTransactions() },
@@ -359,7 +368,7 @@ fun MainScreen(
                     onEditCard = { editingCard = it },
                     onAddCard = { showAddCardDialog = true },
                     onPayInvoice = { payingCard = it },
-                    onEditTransaction = { editingTransaction = it },
+                    onEditTransaction = handleEditTransaction,
                     onReorderCards = { viewModel.reorderCards(it) }
                 )
                 3 -> CategoriesTagsScreen(
@@ -534,7 +543,7 @@ fun MainScreen(
                 )
             }
 
-            // Diálogo de Transferência
+            // Diálogo de Nova Transferência
             if (showTransferDialog) {
                 TransferDialog(
                     accounts = accounts,
@@ -542,6 +551,27 @@ fun MainScreen(
                     onTransfer = { fromId, toId, amt, isScheduled, date, isRecurring ->
                         viewModel.transfer(fromId, toId, amt, isScheduled, date, isRecurring)
                         showTransferDialog = false
+                    }
+                )
+            }
+
+            // Diálogo de Editar Transferência Existente
+            if (editingTransferItem != null) {
+                TransferDialog(
+                    accounts = accounts,
+                    existingTransfer = editingTransferItem,
+                    onDismiss = { editingTransferItem = null },
+                    onTransfer = { fromId, toId, amt, isScheduled, date, isRecurring ->
+                        viewModel.transfer(fromId, toId, amt, isScheduled, date, isRecurring)
+                        editingTransferItem = null
+                    },
+                    onUpdateTransfer = { existing, fromId, toId, amt, isScheduled, date, isRecurring ->
+                        viewModel.updateTransfer(existing, fromId, toId, amt, isScheduled, date, isRecurring)
+                        editingTransferItem = null
+                    },
+                    onDeleteTransfer = { transferToDelete ->
+                        viewModel.deleteTransaction(transferToDelete.id, transferToDelete.monthYear, true)
+                        editingTransferItem = null
                     }
                 )
             }
@@ -1345,6 +1375,13 @@ fun DashboardTab(
         }
 
         item {
+            val primaryAccount = accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
+            val otherAccounts = accounts.filter { acc ->
+                acc.includeInOverallBalance && acc.balance > 0.0 && (primaryAccount == null || acc.id != primaryAccount.id)
+            }
+            val otherAccountsBalance = otherAccounts.sumOf { it.balance }
+            val otherAccountsLabel = if (otherAccounts.size == 1) otherAccounts.first().name else if (otherAccounts.size > 1) "${otherAccounts.size} contas" else ""
+
             OverviewCard(
                 totalIncome = totalInc,
                 totalExpense = totalExp,
@@ -1354,6 +1391,8 @@ fun DashboardTab(
                 unspentBudgets = unspentBudgets,
                 items = currentMonthData?.items ?: emptyList(),
                 hideValues = hideValues,
+                otherAccountsBalance = otherAccountsBalance,
+                otherAccountsLabel = otherAccountsLabel,
                 onAdjustBalance = { onAdjustBalance(0) }
             )
         }

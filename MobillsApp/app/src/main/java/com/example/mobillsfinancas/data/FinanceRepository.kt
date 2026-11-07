@@ -162,6 +162,18 @@ class FinanceRepository(private val context: Context) {
             }
 
             try {
+                sanitizePhantomCarrierTransactions()
+            } catch (t: Throwable) {
+                android.util.Log.e("FinanceRepository", "Erro ao sanitizar transações de operadora", t)
+            }
+
+            try {
+                ensureRecentMissingInterPurchase()
+            } catch (t: Throwable) {
+                android.util.Log.e("FinanceRepository", "Erro em ensureRecentMissingInterPurchase", t)
+            }
+
+            try {
                 checkAndApplyAutoYield()
             } catch (t: Throwable) {
                 android.util.Log.e("FinanceRepository", "Erro em checkAndApplyAutoYield", t)
@@ -179,6 +191,85 @@ class FinanceRepository(private val context: Context) {
             } catch (t2: Throwable) {
                 t2.printStackTrace()
             }
+        }
+    }
+
+    fun sanitizePhantomCarrierTransactions(): Int {
+        var removedCount = 0
+        _monthDataMap.forEach { (mKey, mData) ->
+            val phantomItems = mData.items.filter { item ->
+                val desc = item.description.lowercase()
+                (desc.contains("plano tim") ||
+                 desc.contains("plano vivo") ||
+                 desc.contains("plano claro") ||
+                 desc.contains("plano oi") ||
+                 desc.contains("desconto na atualização") ||
+                 desc.contains("desconto na atualizacao") ||
+                 desc.contains("pix de desconto") ||
+                 (desc.contains("tim") && desc.contains("desconto")))
+            }
+
+            if (phantomItems.isNotEmpty()) {
+                phantomItems.forEach { item ->
+                    if (item.status == PaymentStatus.PAID) {
+                        val account = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+                        if (account != null) {
+                            if (item.type == TransactionType.INCOME) {
+                                val restoredBalance = Math.round((account.balance - item.amount) * 100.0) / 100.0
+                                updateAccount(account.copy(balance = restoredBalance))
+                                android.util.Log.i("FinanceRepository", "Sanitizado saldo fantasma: -${item.amount} em ${account.name}")
+                            } else if (item.type == TransactionType.EXPENSE) {
+                                val restoredBalance = Math.round((account.balance + item.amount) * 100.0) / 100.0
+                                updateAccount(account.copy(balance = restoredBalance))
+                            }
+                        }
+                    }
+                    removedCount++
+                }
+
+                val cleanedItems = mData.items.filterNot { phantomItems.contains(it) }
+                _monthDataMap[mKey] = mData.copy(
+                    items = cleanedItems,
+                    lastModified = System.currentTimeMillis()
+                )
+            }
+        }
+
+        if (removedCount > 0) {
+            android.util.Log.i("FinanceRepository", "Removidas $removedCount transações fantasmas de operadora.")
+            recalculateAllMonths()
+            saveToDisk()
+        }
+        return removedCount
+    }
+
+    private fun ensureRecentMissingInterPurchase() {
+        val targetMonth = "NOVEMBRO 2026"
+        val monthData = _monthDataMap[targetMonth] ?: return
+        val alreadyExists = monthData.items.any { 
+            it.amount == 26.90 && (it.description.contains("GOOGLE", ignoreCase = true) || it.description.contains("YouTube", ignoreCase = true))
+        }
+        if (!alreadyExists) {
+            val item = TransactionItem(
+                id = UUID.randomUUID().toString(),
+                description = "Google YouTube",
+                amount = 26.90,
+                type = TransactionType.EXPENSE,
+                category = "Serviços & Assinaturas",
+                accountOrCardName = "Cartão Inter",
+                paymentType = PaymentType.CREDIT_CARD,
+                monthYear = targetMonth,
+                date = "03/11/2026",
+                status = PaymentStatus.PENDING
+            )
+            val updatedItems = listOf(item) + monthData.items
+            _monthDataMap[targetMonth] = monthData.copy(
+                items = updatedItems,
+                lastModified = System.currentTimeMillis()
+            )
+            recalculateAllMonths()
+            saveToDisk()
+            android.util.Log.i("FinanceRepository", "Compra do Banco Inter (Google YouTube R$ 26,90) inserida automaticamente!")
         }
     }
 
@@ -318,9 +409,12 @@ class FinanceRepository(private val context: Context) {
         _months.value = monthList
         recalculateAllMonths()
 
-        val defaultMonth = monthList.find { it.contains("OUTUBRO 2026", ignoreCase = true) }
-            ?: monthList.find { it.contains("OUTUBRO 2025", ignoreCase = true) }
-            ?: monthList.firstOrNull() ?: ""
+        val realCurrentMonth = MonthHelper.getCurrentMonthYear()
+        val defaultMonth = if (monthList.contains(realCurrentMonth)) {
+            realCurrentMonth
+        } else {
+            monthList.lastOrNull() ?: realCurrentMonth
+        }
 
         selectMonth(defaultMonth)
     }
@@ -328,7 +422,7 @@ class FinanceRepository(private val context: Context) {
 
 
     private fun createFallbackData() {
-        val month = "OUTUBRO 2026"
+        val month = MonthHelper.getCurrentMonthYear()
         _months.value = listOf(month)
         _monthDataMap[month] = MonthData(
             monthYear = month,
@@ -340,6 +434,14 @@ class FinanceRepository(private val context: Context) {
             lastModified = System.currentTimeMillis()
         )
         selectMonth(month)
+    }
+
+    fun ensureCurrentMonthSelected() {
+        val current = MonthHelper.getCurrentMonthYear()
+        if (_selectedMonth.value != current) {
+            ensureMonthExists(current)
+            selectMonth(current)
+        }
     }
 
     fun selectMonth(month: String) {
@@ -650,6 +752,133 @@ class FinanceRepository(private val context: Context) {
             }
         }
         return null
+    }
+
+    fun resolveTransferAccounts(item: TransactionItem): Pair<AccountItem?, AccountItem?> {
+        val fromId = extractNoteParam(item.note, "fromAccountId")
+        val toId = extractNoteParam(item.note, "toAccountId")
+        var fromAcc = _accounts.value.find { it.id == fromId }
+        var toAcc = _accounts.value.find { it.id == toId }
+
+        // Fallback: tenta resolver pelos nomes das contas na descrição (ex: "Agendado: Conta Inter ➔ Cofrinho MP 2")
+        if (fromAcc == null || toAcc == null) {
+            val arrow = if (item.description.contains("➔")) "➔" else if (item.description.contains("->")) "->" else null
+            if (arrow != null) {
+                val parts = item.description.split(arrow)
+                if (parts.size >= 2) {
+                    val rawFrom = parts[0]
+                        .replace("Agendado:", "")
+                        .replace("Transferência:", "")
+                        .replace("Transferencia:", "")
+                        .trim()
+                    val rawTo = parts[1].trim()
+                    if (fromAcc == null && rawFrom.isNotBlank()) {
+                        fromAcc = findMatchingAccount(rawFrom, fallbackToDefault = false)
+                    }
+                    if (toAcc == null && rawTo.isNotBlank()) {
+                        toAcc = findMatchingAccount(rawTo, fallbackToDefault = false)
+                    }
+                }
+            }
+        }
+
+        // Fallback secundário: tenta pelo accountOrCardName como conta de origem
+        if (fromAcc == null && item.accountOrCardName.isNotBlank()) {
+            fromAcc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+        }
+
+        return Pair(fromAcc, toAcc)
+    }
+
+    fun updateTransfer(
+        existingTransfer: TransactionItem,
+        fromAccountId: String,
+        toAccountId: String,
+        amount: Double,
+        isScheduled: Boolean,
+        date: String,
+        isRecurring: Boolean
+    ) {
+        val fromAcc = _accounts.value.find { it.id == fromAccountId } ?: return
+        val toAcc = _accounts.value.find { it.id == toAccountId } ?: return
+        val txDate = if (date.isNotBlank()) date else Formatters.todayDateString()
+        val targetMonth = MonthHelper.getMonthYearFromDate(txDate) ?: existingTransfer.monthYear
+        val oldMonth = existingTransfer.monthYear
+
+        val oldData = _monthDataMap[oldMonth]
+        val oldItem = oldData?.items?.find { it.id == existingTransfer.id } ?: existingTransfer
+
+        // 1. Reverte o impacto financeiro da transferência antiga se já estava paga
+        if (oldItem.status == PaymentStatus.PAID) {
+            val (oldFrom, oldTo) = resolveTransferAccounts(oldItem)
+            if (oldFrom != null && oldTo != null) {
+                val revertedFrom = oldFrom.copy(balance = oldFrom.balance + oldItem.amount)
+                val revertedTo = oldTo.copy(balance = oldTo.balance - oldItem.amount)
+                _accounts.value = _accounts.value.map {
+                    when (it.id) {
+                        revertedFrom.id -> revertedFrom
+                        revertedTo.id -> revertedTo
+                        else -> it
+                    }
+                }
+            }
+        }
+
+        // 2. Aplica o impacto financeiro da nova transferência se for efetivada já (não agendada)
+        if (!isScheduled) {
+            val currentFrom = _accounts.value.find { it.id == fromAccountId } ?: fromAcc
+            val currentTo = _accounts.value.find { it.id == toAccountId } ?: toAcc
+            val updatedFrom = currentFrom.copy(balance = currentFrom.balance - amount)
+            val updatedTo = currentTo.copy(balance = currentTo.balance + amount)
+            _accounts.value = _accounts.value.map {
+                when (it.id) {
+                    updatedFrom.id -> updatedFrom
+                    updatedTo.id -> updatedTo
+                    else -> it
+                }
+            }
+        }
+
+        val isToReserve = !toAcc.includeInOverallBalance
+        val updatedTx = existingTransfer.copy(
+            description = if (isScheduled) "Agendado: ${fromAcc.name} ➔ ${toAcc.name}" else "Transferência: ${fromAcc.name} ➔ ${toAcc.name}",
+            amount = amount,
+            type = TransactionType.TRANSFER,
+            category = if (isToReserve) "Cofrinho & Reserva" else "Transferência",
+            categoryIcon = if (isToReserve) "🐖" else "⇄",
+            categoryColorHex = if (isToReserve) 0xFF0284C7 else 0xFF00A868,
+            accountOrCardName = fromAcc.name,
+            paymentType = PaymentType.PIX,
+            monthYear = targetMonth,
+            date = txDate,
+            status = if (isScheduled) PaymentStatus.PENDING else PaymentStatus.PAID,
+            note = "fromAccountId:${fromAcc.id}|toAccountId:${toAcc.id}",
+            includeInBudget = isToReserve,
+            isRecurring = isRecurring
+        )
+
+        if (oldMonth != targetMonth) {
+            if (oldData != null) {
+                _monthDataMap[oldMonth] = oldData.copy(
+                    items = oldData.items.filter { it.id != existingTransfer.id },
+                    lastModified = System.currentTimeMillis()
+                )
+            }
+            val targetData = ensureMonthExists(targetMonth)
+            _monthDataMap[targetMonth] = targetData.copy(
+                items = listOf(updatedTx) + targetData.items.filter { it.id != existingTransfer.id },
+                lastModified = System.currentTimeMillis()
+            )
+        } else {
+            val data = _monthDataMap[targetMonth] ?: ensureMonthExists(targetMonth)
+            _monthDataMap[targetMonth] = data.copy(
+                items = data.items.map { if (it.id == existingTransfer.id) updatedTx else it },
+                lastModified = System.currentTimeMillis()
+            )
+        }
+
+        recalculateAllMonths()
+        saveToDisk()
     }
 
     fun transfer(
@@ -1064,7 +1293,20 @@ class FinanceRepository(private val context: Context) {
 
         if (oldItem != null) {
             // 1. Reverte o impacto financeiro da transação antiga
-            if (oldItem.type == TransactionType.INCOME && oldItem.status == PaymentStatus.PAID) {
+            if (oldItem.type == TransactionType.TRANSFER && oldItem.status == PaymentStatus.PAID) {
+                val (oldFrom, oldTo) = resolveTransferAccounts(oldItem)
+                if (oldFrom != null && oldTo != null) {
+                    val revertedFrom = oldFrom.copy(balance = oldFrom.balance + oldItem.amount)
+                    val revertedTo = oldTo.copy(balance = oldTo.balance - oldItem.amount)
+                    _accounts.value = _accounts.value.map {
+                        when (it.id) {
+                            revertedFrom.id -> revertedFrom
+                            revertedTo.id -> revertedTo
+                            else -> it
+                        }
+                    }
+                }
+            } else if (oldItem.type == TransactionType.INCOME && oldItem.status == PaymentStatus.PAID) {
                 val oldAcc = findMatchingAccount(oldItem.accountOrCardName, fallbackToDefault = false)
                 if (oldAcc != null) {
                     updateAccount(oldAcc.copy(balance = oldAcc.balance - oldItem.amount))
@@ -1079,7 +1321,22 @@ class FinanceRepository(private val context: Context) {
             }
 
             // 2. Aplica o impacto financeiro da transação atualizada
-            if (finalItem.type == TransactionType.INCOME && finalItem.status == PaymentStatus.PAID) {
+            if (finalItem.type == TransactionType.TRANSFER && finalItem.status == PaymentStatus.PAID) {
+                val (newFrom, newTo) = resolveTransferAccounts(finalItem)
+                if (newFrom != null && newTo != null) {
+                    val currentFrom = _accounts.value.find { it.id == newFrom.id } ?: newFrom
+                    val currentTo = _accounts.value.find { it.id == newTo.id } ?: newTo
+                    val updatedFrom = currentFrom.copy(balance = currentFrom.balance - finalItem.amount)
+                    val updatedTo = currentTo.copy(balance = currentTo.balance + finalItem.amount)
+                    _accounts.value = _accounts.value.map {
+                        when (it.id) {
+                            updatedFrom.id -> updatedFrom
+                            updatedTo.id -> updatedTo
+                            else -> it
+                        }
+                    }
+                }
+            } else if (finalItem.type == TransactionType.INCOME && finalItem.status == PaymentStatus.PAID) {
                 val newAcc = findMatchingAccount(finalItem.accountOrCardName, fallbackToDefault = false)
                 if (newAcc != null) {
                     updateAccount(newAcc.copy(balance = newAcc.balance + finalItem.amount))
@@ -1094,21 +1351,35 @@ class FinanceRepository(private val context: Context) {
             }
         }
 
+        val itemToStore = if (finalItem.type == TransactionType.TRANSFER) {
+            val isNowPaid = (finalItem.status == PaymentStatus.PAID)
+            val updatedDesc = if (isNowPaid && finalItem.description.startsWith("Agendado:")) {
+                finalItem.description.replaceFirst("Agendado:", "Transferência:").trim()
+            } else if (!isNowPaid && finalItem.description.startsWith("Transferência:")) {
+                finalItem.description.replaceFirst("Transferência:", "Agendado:").trim()
+            } else {
+                finalItem.description
+            }
+            finalItem.copy(description = updatedDesc)
+        } else {
+            finalItem
+        }
+
         if (oldMonth != newMonth) {
             if (oldData != null) {
-                val updatedOldItems = oldData.items.filter { it.id != finalItem.id }
+                val updatedOldItems = oldData.items.filter { it.id != itemToStore.id }
                 _monthDataMap[oldMonth] = oldData.copy(items = updatedOldItems, lastModified = System.currentTimeMillis())
             }
             val newData = ensureMonthExists(newMonth)
-            val updatedNewItems = listOf(finalItem) + newData.items.filter { it.id != finalItem.id }
+            val updatedNewItems = listOf(itemToStore) + newData.items.filter { it.id != itemToStore.id }
             _monthDataMap[newMonth] = newData.copy(items = updatedNewItems, lastModified = System.currentTimeMillis())
         } else {
             val data = _monthDataMap[newMonth] ?: ensureMonthExists(newMonth)
-            val index = data.items.indexOfFirst { it.id == finalItem.id }
+            val index = data.items.indexOfFirst { it.id == itemToStore.id }
             val updatedItems = if (index != -1) {
-                data.items.map { if (it.id == finalItem.id) finalItem else it }
+                data.items.map { if (it.id == itemToStore.id) itemToStore else it }
             } else {
-                listOf(finalItem) + data.items
+                listOf(itemToStore) + data.items
             }
             _monthDataMap[newMonth] = data.copy(items = updatedItems, lastModified = System.currentTimeMillis())
         }
@@ -1290,10 +1561,7 @@ class FinanceRepository(private val context: Context) {
         val isNowPaid = (newStatus == PaymentStatus.PAID)
         if (wasPaid != isNowPaid) {
             if (item.type == TransactionType.TRANSFER) {
-                val fromId = extractNoteParam(item.note, "fromAccountId")
-                val toId = extractNoteParam(item.note, "toAccountId")
-                val fromAcc = _accounts.value.find { it.id == fromId }
-                val toAcc = _accounts.value.find { it.id == toId }
+                val (fromAcc, toAcc) = resolveTransferAccounts(item)
                 if (fromAcc != null && toAcc != null) {
                     val delta = if (isNowPaid) item.amount else -item.amount
                     val updatedFrom = fromAcc.copy(balance = fromAcc.balance - delta)
@@ -1323,10 +1591,14 @@ class FinanceRepository(private val context: Context) {
 
         val updatedList = current.items.map {
             if (it.id == transactionId) {
+                val (fAcc, tAcc) = if (it.type == TransactionType.TRANSFER) resolveTransferAccounts(it) else Pair(null, null)
                 val newDesc = if (it.type == TransactionType.TRANSFER) {
                     if (isNowPaid) it.description.replace("Agendado:", "Transferência:") else it.description.replace("Transferência:", "Agendado:")
                 } else it.description
-                it.copy(status = newStatus, description = newDesc)
+                val updatedNote = if (it.type == TransactionType.TRANSFER && fAcc != null && tAcc != null) {
+                    "fromAccountId:${fAcc.id}|toAccountId:${tAcc.id}"
+                } else it.note
+                it.copy(status = newStatus, description = newDesc, note = updatedNote)
             } else it
         }
 
@@ -1349,10 +1621,7 @@ class FinanceRepository(private val context: Context) {
         val itemToDelete = _monthDataMap[targetMonth]?.items?.find { it.id == transactionId }
         if (itemToDelete != null && itemToDelete.status == PaymentStatus.PAID) {
             if (itemToDelete.type == TransactionType.TRANSFER) {
-                val fromId = extractNoteParam(itemToDelete.note, "fromAccountId")
-                val toId = extractNoteParam(itemToDelete.note, "toAccountId")
-                val fromAcc = _accounts.value.find { it.id == fromId }
-                val toAcc = _accounts.value.find { it.id == toId }
+                val (fromAcc, toAcc) = resolveTransferAccounts(itemToDelete)
                 if (fromAcc != null && toAcc != null) {
                     val updatedFrom = fromAcc.copy(balance = fromAcc.balance + itemToDelete.amount)
                     val updatedTo = toAcc.copy(balance = toAcc.balance - itemToDelete.amount)
@@ -1628,8 +1897,9 @@ class FinanceRepository(private val context: Context) {
                 isCascadingStarted = true
             }
 
-            val salaryItem = monthData.items.find { it.isSalaryReplacement && it.type == TransactionType.INCOME }
-            val effectiveBaseInc = if (salaryItem != null && salaryItem.amount > 0) salaryItem.amount else monthData.baseIncome
+            val salaryItems = monthData.items.filter { it.isSalaryReplacement && it.type == TransactionType.INCOME }
+            val totalSalaryItems = salaryItems.sumOf { it.amount }
+            val effectiveBaseInc = if (totalSalaryItems > 0) totalSalaryItems else monthData.baseIncome
 
             var totalExp = 0.0
             var extraInc = 0.0
@@ -1725,8 +1995,8 @@ class FinanceRepository(private val context: Context) {
         var importedCount = 0
         val trnRegex = Regex("<STMTTRN>[\\s\\S]*?</STMTTRN>", RegexOption.IGNORE_CASE)
         val trnamtRegex = Regex("<TRNAMT>([+-]?[0-9.,]+)", RegexOption.IGNORE_CASE)
-        val memoRegex = Regex("<MEMO>(.*?)(?:<|$)", RegexOption.IGNORE_CASE)
-        val nameRegex = Regex("<NAME>(.*?)(?:<|$)", RegexOption.IGNORE_CASE)
+        val memoRegex = Regex("<MEMO>([^<\\r\\n]+)", RegexOption.IGNORE_CASE)
+        val nameRegex = Regex("<NAME>([^<\\r\\n]+)", RegexOption.IGNORE_CASE)
         val dateRegex = Regex("<DTPOSTED>(\\d{4})(\\d{2})(\\d{2})", RegexOption.IGNORE_CASE)
 
         val matches = trnRegex.findAll(content)
@@ -1769,11 +2039,14 @@ class FinanceRepository(private val context: Context) {
         var count = 0
         val lines = content.lines()
         for (line in lines) {
-            val parts = line.split(";", ",")
+            val trimmedLine = line.trim()
+            if (trimmedLine.isEmpty()) continue
+            val separator = if (trimmedLine.contains(";")) ";" else ","
+            val parts = trimmedLine.split(separator)
             if (parts.size >= 3) {
                 val dateStr = parts[0].trim()
                 val desc = parts[1].trim()
-                val amtStr = parts[2].trim().replace("R$", "").replace(" ", "").replace(",", ".")
+                val amtStr = parts[2].trim().replace("R$", "").replace(" ", "").replace(",", ".").replace("+", "")
                 val amt = amtStr.toDoubleOrNull()
                 if (amt != null && !desc.equals("descrição", ignoreCase = true)) {
                     val absAmt = Math.abs(amt)
@@ -2162,11 +2435,12 @@ class FinanceRepository(private val context: Context) {
                 _months.value = monthList
                 purgeSpuriousNotificationEchoes()
                 recalculateAllMonths()
-                val currentSelected = _selectedMonth.value
-                val defaultMonth = if (currentSelected.isNotEmpty() && monthList.contains(currentSelected)) {
-                    currentSelected
+                val realCurrentMonth = MonthHelper.getCurrentMonthYear()
+                val defaultMonth = if (monthList.contains(realCurrentMonth)) {
+                    realCurrentMonth
                 } else {
-                    monthList.find { it.contains("OUTUBRO 2026") } ?: monthList.firstOrNull() ?: ""
+                    ensureMonthExists(realCurrentMonth)
+                    realCurrentMonth
                 }
                 selectMonth(defaultMonth)
             }

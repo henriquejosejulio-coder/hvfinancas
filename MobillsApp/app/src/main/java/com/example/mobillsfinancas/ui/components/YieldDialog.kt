@@ -97,8 +97,8 @@ fun YieldDialog(
                 // Card de Automação
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFF0FDF4),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC)),
+                    color = MobillsGreenPrimary.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MobillsGreenPrimary.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -113,13 +113,13 @@ fun YieldDialog(
                                 text = "⚡ Rendimento Automático",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = Color(0xFF166534)
+                                color = MobillsGreenPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Aplica o rendimento diário estimado em dias úteis ao abrir o app para bater com o Mercado Pago.",
+                                text = "Aplica o rendimento diário estimado em dias úteis ao abrir o app para bater com o banco.",
                                 fontSize = 11.sp,
-                                color = Color(0xFF15803D),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 14.sp
                             )
                         }
@@ -239,11 +239,21 @@ fun YieldDialog(
                                             value = currentInput,
                                             onValueChange = { val clean = it.filter { c -> c.isDigit() || c == '.' || c == ',' }; yieldInputs[acc.id] = clean },
                                             label = { Text("Rendimento Hoje (R$)", fontSize = 11.sp) },
-                                            placeholder = { Text("0.10") },
+                                            placeholder = { Text("0.05") },
                                             leadingIcon = { Text("+ R$", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = IncomeGreen) },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                focusedBorderColor = MobillsGreenPrimary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                                focusedLabelColor = MobillsGreenPrimary,
+                                                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         )
 
                                         Column(

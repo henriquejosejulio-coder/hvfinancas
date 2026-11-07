@@ -157,6 +157,18 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         repository.transfer(fromId, toId, amount, isScheduled, date, isRecurring)
     }
 
+    fun updateTransfer(
+        existingTransfer: TransactionItem,
+        fromAccountId: String,
+        toAccountId: String,
+        amount: Double,
+        isScheduled: Boolean,
+        date: String,
+        isRecurring: Boolean
+    ) {
+        repository.updateTransfer(existingTransfer, fromAccountId, toAccountId, amount, isScheduled, date, isRecurring)
+    }
+
     // Categorias e Tags
     fun addCategory(category: CategoryItem) {
         repository.addCategory(category)

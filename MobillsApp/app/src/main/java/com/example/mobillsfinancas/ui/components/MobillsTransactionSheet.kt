@@ -307,7 +307,11 @@ fun MobillsTransactionSheet(
                             text = if (existingItem == null) {
                                 if (type == TransactionType.EXPENSE) "Nova Despesa" else "Nova Receita"
                             } else {
-                                if (type == TransactionType.EXPENSE) "Editar Despesa" else "Editar Receita"
+                                when (type) {
+                                    TransactionType.EXPENSE -> "Editar Despesa"
+                                    TransactionType.INCOME -> "Editar Receita"
+                                    TransactionType.TRANSFER -> "Editar Transferência"
+                                }
                             },
                             color = Color.White.copy(alpha = 0.9f),
                             fontWeight = FontWeight.Bold,
@@ -1223,7 +1227,7 @@ fun MobillsTransactionSheet(
                                         }
                                         Text(
                                             text = if (isSalaryReplacement)
-                                                "Substitui a média prevista de R$ 3.300 pelo valor real recebido (não duplica no total)"
+                                                "Salário / Férias / Adiantamento (soma aos outros salários e substitui a média prevista)"
                                             else
                                                 "Receita extra avulsa (soma além do salário base)",
                                             style = MaterialTheme.typography.bodySmall,

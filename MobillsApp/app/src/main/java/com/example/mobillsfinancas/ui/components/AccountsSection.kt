@@ -68,7 +68,7 @@ fun AccountsSection(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Saldo Livre: ${Formatters.formatMoney(effectiveAvailable, hideValues)}",
+                            text = "Disponível em Conta: ${Formatters.formatMoney(effectiveAvailable, hideValues)}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MobillsGreenPrimary

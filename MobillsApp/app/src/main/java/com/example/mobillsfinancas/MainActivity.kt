@@ -47,6 +47,13 @@ class MainActivity : ComponentActivity() {
         Log.e("MainActivity", "Erro ao verificar ou solicitar ignoreBatteryOptimizations", t)
     }
 
+    // Garante que o app abra sempre no mês atual do calendário (ex: NOVEMBRO 2026)
+    try {
+        com.example.mobillsfinancas.data.FinanceRepository.getInstance(applicationContext).ensureCurrentMonthSelected()
+    } catch (t: Throwable) {
+        Log.e("MainActivity", "Erro ao sincronizar mês atual na abertura", t)
+    }
+
     enableEdgeToEdge()
     setContent {
       MobillsFinancasTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { MainNavigation() } }

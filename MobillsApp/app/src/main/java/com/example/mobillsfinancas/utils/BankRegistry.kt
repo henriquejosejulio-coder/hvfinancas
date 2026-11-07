@@ -36,7 +36,13 @@ object BankRegistry {
             cardName = "Cartão Inter",
             colorHex = 0xFFFF7A00L, // Laranja Inter
             icon = "🟠",
-            packageNames = listOf("br.com.intermedium", "br.com.bancointer"),
+            packageNames = listOf(
+                "br.com.intermedium",
+                "br.com.bancointer",
+                "com.bancointer",
+                "br.com.inter",
+                "br.com.inter.app"
+            ),
             keywords = listOf("banco inter", "intermedium", "conta inter", "cartão inter", "cartao inter")
         ),
         SupportedBank(
@@ -195,8 +201,13 @@ object BankRegistry {
         }
         if (byPackage != null) return byPackage
 
-        // 2. Match especial para Banco Inter quando o título é "Inter"
-        if (title.equals("Inter", ignoreCase = true) || title.startsWith("Inter ", ignoreCase = true)) {
+        // 2. Match especial para Banco Inter quando o título ou conteúdo contém "Inter"
+        if (title.equals("Inter", ignoreCase = true) ||
+            title.startsWith("Inter ", ignoreCase = true) ||
+            content.contains("Inter ·", ignoreCase = true) ||
+            content.contains("Inter •", ignoreCase = true) ||
+            (Regex("\\binter\\b", RegexOption.IGNORE_CASE).containsMatchIn("$title $content") &&
+             !text.contains("internet") && !text.contains("internacional") && !text.contains("interior"))) {
             return ALL_BANKS.find { it.key == "inter" }
         }
 

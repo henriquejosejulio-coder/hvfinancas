@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import java.util.Calendar
 import java.util.Locale
 import com.example.mobillsfinancas.data.AccountItem
+import com.example.mobillsfinancas.data.PaymentStatus
+import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.utils.Formatters
 
@@ -35,25 +37,107 @@ import com.example.mobillsfinancas.utils.Formatters
 @Composable
 fun TransferDialog(
     accounts: List<AccountItem>,
+    existingTransfer: TransactionItem? = null,
     onDismiss: () -> Unit,
-    onTransfer: (fromId: String, toId: String, amount: Double, isScheduled: Boolean, date: String, isRecurring: Boolean) -> Unit
+    onTransfer: (fromId: String, toId: String, amount: Double, isScheduled: Boolean, date: String, isRecurring: Boolean) -> Unit,
+    onUpdateTransfer: ((existing: TransactionItem, fromId: String, toId: String, amount: Double, isScheduled: Boolean, date: String, isRecurring: Boolean) -> Unit)? = null,
+    onDeleteTransfer: ((TransactionItem) -> Unit)? = null
 ) {
     if (accounts.size < 2) return
 
-    var fromIndex by remember { mutableIntStateOf(0) }
-    var toIndex by remember {
-        val targetIdx = accounts.indexOfFirst { !it.includeInOverallBalance }
-        mutableIntStateOf(if (targetIdx != -1) targetIdx else if (accounts.size > 1) 1 else 0)
+    val initialFromIndex = remember(existingTransfer, accounts) {
+        if (existingTransfer != null) {
+            val fromId = extractNoteParam(existingTransfer.note, "fromAccountId")
+            val byId = accounts.indexOfFirst { it.id == fromId }
+            if (byId != -1) return@remember byId
+
+            val arrow = if (existingTransfer.description.contains("➔")) "➔" else if (existingTransfer.description.contains("->")) "->" else null
+            if (arrow != null) {
+                val rawFrom = existingTransfer.description.split(arrow)[0]
+                    .replace("Agendado:", "")
+                    .replace("Transferência:", "")
+                    .replace("Transferencia:", "")
+                    .trim()
+                val byName = accounts.indexOfFirst { it.name.equals(rawFrom, ignoreCase = true) || rawFrom.contains(it.name, ignoreCase = true) }
+                if (byName != -1) return@remember byName
+            }
+            val byAccOrCard = accounts.indexOfFirst { it.name.equals(existingTransfer.accountOrCardName, ignoreCase = true) }
+            if (byAccOrCard != -1) return@remember byAccOrCard
+        }
+        0
     }
-    var amountTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
+
+    val initialToIndex = remember(existingTransfer, accounts) {
+        if (existingTransfer != null) {
+            val toId = extractNoteParam(existingTransfer.note, "toAccountId")
+            val byId = accounts.indexOfFirst { it.id == toId }
+            if (byId != -1) return@remember byId
+
+            val arrow = if (existingTransfer.description.contains("➔")) "➔" else if (existingTransfer.description.contains("->")) "->" else null
+            if (arrow != null) {
+                val parts = existingTransfer.description.split(arrow)
+                if (parts.size >= 2) {
+                    val rawTo = parts[1].trim()
+                    val byName = accounts.indexOfFirst { it.name.equals(rawTo, ignoreCase = true) || rawTo.contains(it.name, ignoreCase = true) }
+                    if (byName != -1) return@remember byName
+                }
+            }
+        }
+        val targetIdx = accounts.indexOfFirst { !it.includeInOverallBalance }
+        if (targetIdx != -1) targetIdx else if (accounts.size > 1) 1 else 0
+    }
+
+    var fromIndex by remember { mutableIntStateOf(initialFromIndex) }
+    var toIndex by remember { mutableIntStateOf(initialToIndex) }
+    var amountTextFieldValue by remember {
+        mutableStateOf(
+            if (existingTransfer != null && existingTransfer.amount > 0)
+                Formatters.toCurrencyTextFieldValue(existingTransfer.amount)
+            else
+                TextFieldValue("", TextRange(0))
+        )
+    }
     val amountText = amountTextFieldValue.text
-    var isScheduled by remember { mutableStateOf(false) }
-    var isRecurring by remember { mutableStateOf(false) }
-    var dateText by remember { mutableStateOf<String>(Formatters.todayDateString()) }
+    var isScheduled by remember {
+        mutableStateOf(
+            if (existingTransfer != null) existingTransfer.status == PaymentStatus.PENDING else false
+        )
+    }
+    var isRecurring by remember {
+        mutableStateOf(existingTransfer?.isRecurring ?: false)
+    }
+    var dateText by remember {
+        mutableStateOf(existingTransfer?.date?.ifBlank { Formatters.todayDateString() } ?: Formatters.todayDateString())
+    }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     val fromAcc = accounts.getOrNull(fromIndex) ?: accounts.first()
     val toAcc = accounts.getOrNull(toIndex) ?: accounts.last()
     val isToCofrinho = !toAcc.includeInOverallBalance
+
+    if (showDeleteConfirmDialog && existingTransfer != null && onDeleteTransfer != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Excluir Transferência", fontWeight = FontWeight.Bold) },
+            text = { Text("Deseja realmente excluir esta transferência de ${Formatters.formatCurrencyPlain(existingTransfer.amount)}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        onDeleteTransfer(existingTransfer)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -68,7 +152,7 @@ fun TransferDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "⇄ Transferência entre Contas",
+                    text = if (existingTransfer != null) "⇄ Editar Transferência" else "⇄ Transferência entre Contas",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MobillsGreenPrimary
@@ -84,7 +168,7 @@ fun TransferDialog(
                     FilterChip(
                         selected = !isScheduled,
                         onClick = { isScheduled = false },
-                        label = { Text("⚡ Efetivar Já", fontSize = 11.sp, fontWeight = if (!isScheduled) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("⚡ Efetivada / Paga", fontSize = 11.sp, fontWeight = if (!isScheduled) FontWeight.Bold else FontWeight.Normal) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MobillsGreenPrimary.copy(alpha = 0.2f),
                             selectedLabelColor = MobillsGreenPrimary
@@ -94,7 +178,7 @@ fun TransferDialog(
                     FilterChip(
                         selected = isScheduled,
                         onClick = { isScheduled = true },
-                        label = { Text("🕒 Agendar / Reservar", fontSize = 11.sp, fontWeight = if (isScheduled) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text("🕒 Agendada / Reservar", fontSize = 11.sp, fontWeight = if (isScheduled) FontWeight.Bold else FontWeight.Normal) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFFFF9800).copy(alpha = 0.2f),
                             selectedLabelColor = Color(0xFFE65100)
@@ -175,7 +259,7 @@ fun TransferDialog(
                 OutlinedTextField(
                     value = amountTextFieldValue,
                     onValueChange = { amountTextFieldValue = Formatters.updateCurrencyInput(it, amountTextFieldValue) },
-                    label = { Text("Valor a Transferir (R$)") },
+                    label = { Text("Valor da Transferência (R$)") },
                     placeholder = { Text("0,00") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -240,7 +324,6 @@ fun TransferDialog(
                         }
                     }
                 }
-
 
                 if (isToCofrinho) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -340,28 +423,69 @@ fun TransferDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancelar")
+                    if (existingTransfer != null && onDeleteTransfer != null) {
+                        TextButton(
+                            onClick = { showDeleteConfirmDialog = true },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("🗑️ Excluir", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            val amt = Formatters.parseCurrency(amountText)
-                            if (amt > 0 && fromIndex != toIndex) {
-                                onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim(), isRecurring)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isScheduled) Color(0xFFE65100) else MobillsGreenPrimary
-                        )
-                    ) {
-                        Text(if (isScheduled) "Agendar" else "Transferir", color = Color.White)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onDismiss) {
+                            Text("Cancelar")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val amt = Formatters.parseCurrency(amountText)
+                                if (amt > 0 && fromIndex != toIndex) {
+                                    if (existingTransfer != null && onUpdateTransfer != null) {
+                                        onUpdateTransfer(
+                                            existingTransfer,
+                                            fromAcc.id,
+                                            toAcc.id,
+                                            amt,
+                                            isScheduled,
+                                            dateText.trim(),
+                                            isRecurring
+                                        )
+                                    } else {
+                                        onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim(), isRecurring)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isScheduled) Color(0xFFFF9800) else MobillsGreenPrimary
+                            )
+                        ) {
+                            Text(
+                                text = if (existingTransfer != null) "Salvar Alterações" else (if (isScheduled) "Agendar" else "Transferir"),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
+
+private fun extractNoteParam(note: String, key: String): String? {
+    val parts = note.split("|")
+    for (p in parts) {
+        val kv = p.split(":")
+        if (kv.size == 2 && kv[0].trim() == key) {
+            return kv[1].trim()
+        }
+    }
+    return null
+}
+

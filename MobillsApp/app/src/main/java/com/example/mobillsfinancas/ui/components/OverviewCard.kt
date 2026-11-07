@@ -31,12 +31,17 @@ fun OverviewCard(
     unspentBudgets: Double = 0.0,
     items: List<TransactionItem> = emptyList(),
     hideValues: Boolean,
+    otherAccountsBalance: Double = 0.0,
+    otherAccountsLabel: String = "",
     onAdjustBalance: (() -> Unit)? = null
 ) {
     var showBreakdown by remember { mutableStateOf(false) }
 
-    // Renda considerada: se o mês anterior já virou e somou, usa totalIncome; senão usa currentMonthIncome limpa
-    val effectiveIncome = if (previousMonthBalance > 0.0) totalIncome else currentMonthIncome
+    // Renda do mês base (salários e receitas do mês)
+    val baseIncome = if (previousMonthBalance > 0.0) totalIncome else currentMonthIncome
+
+    // Renda total considerada: receitas do mês + saldo disponível em outras contas correntes (ex: Mercado Pago)
+    val effectiveIncome = baseIncome + otherAccountsBalance
 
     // Total comprometido = Despesas já lançadas no mês + Tetos reservados ainda não gastos (ex: R$ 700 do Mercado)
     val totalCommitted = totalExpense + unspentBudgets
@@ -256,7 +261,16 @@ fun OverviewCard(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("💵 Receitas do mês", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("+ " + Formatters.formatMoney(effectiveIncome, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = IncomeGreen)
+                    Text("+ " + Formatters.formatMoney(baseIncome, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = IncomeGreen)
+                }
+
+                if (otherAccountsBalance > 0.0) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    val label = if (otherAccountsLabel.isNotBlank()) "🏦 Saldo em $otherAccountsLabel" else "🏦 Saldo em outras contas"
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("+ " + Formatters.formatMoney(otherAccountsBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
+                    }
                 }
 
                 val cofrinhoAmt = items.filter { it.type == TransactionType.TRANSFER && it.includeInBudget }.sumOf { it.amount }

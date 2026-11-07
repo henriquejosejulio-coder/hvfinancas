@@ -288,7 +288,7 @@ fun EditAccountDialog(
                                 color = if (!includeInOverallBalance) Color(0xFF0369A1) else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Não soma no saldo livre do dia a dia. Fica separado como dinheiro guardado rendendo.",
+                                text = "Não soma no saldo em conta do dia a dia. Fica separado como dinheiro guardado rendendo.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (!includeInOverallBalance) Color(0xFF0284C7) else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -310,9 +310,9 @@ fun EditAccountDialog(
                 if (showCdiConfig) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                         shape = MaterialTheme.shapes.medium,
-                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                        border = BorderStroke(1.dp, MobillsGreenPrimary.copy(alpha = 0.5f))
                     ) {
                         Column(
                             modifier = Modifier
@@ -328,7 +328,7 @@ fun EditAccountDialog(
                                     text = "📈 Rendimento (% do CDI)",
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF166534)
+                                    color = MobillsGreenPrimary
                                 )
                                 if (cdiRateText.isNotBlank()) {
                                     Text(
@@ -341,34 +341,49 @@ fun EditAccountDialog(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Defina a taxa de rendimento (ex: Mercado Pago rende 115% do CDI, Sofisa 110%, Nubank 100%).",
+                                text = "Defina a taxa (ex: MP Conta 105%, Cofrinho MP 115%, Sofisa 110%).",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF15803D)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             // Sugestões de taxas rápidas
+                            val rateOptions = listOf(
+                                "100" to "100% CDI",
+                                "105" to "105% (MP Conta)",
+                                "110" to "110% (Sofisa)",
+                                "115" to "115% (Cofrinho MP)",
+                                "120" to "120% CDI"
+                            )
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                listOf("100", "105", "110", "115", "120").forEach { rate ->
+                                rateOptions.forEach { (rate, label) ->
                                     val isSel = cdiRateText.trim() == rate
                                     FilterChip(
                                         selected = isSel,
                                         onClick = { cdiRateText = rate },
                                         label = {
                                             Text(
-                                                text = if (rate == "115") "115% (MP)" else "$rate% CDI",
+                                                text = label,
                                                 fontSize = 11.sp,
-                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
                                             )
                                         },
                                         colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MobillsGreenPrimary.copy(alpha = 0.2f),
-                                            selectedLabelColor = MobillsGreenPrimary
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                            labelColor = MaterialTheme.colorScheme.onSurface,
+                                            selectedContainerColor = MobillsGreenPrimary,
+                                            selectedLabelColor = Color.Black
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = isSel,
+                                            borderColor = if (isSel) MobillsGreenPrimary else MaterialTheme.colorScheme.outlineVariant
                                         )
                                     )
                                 }
@@ -376,22 +391,41 @@ fun EditAccountDialog(
                                     FilterChip(
                                         selected = false,
                                         onClick = { cdiRateText = "" },
-                                        label = { Text("Sem rendimento", fontSize = 11.sp) }
+                                        label = { Text("Sem rendimento", fontSize = 11.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = false,
+                                            borderColor = MaterialTheme.colorScheme.outlineVariant
+                                        )
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             OutlinedTextField(
                                 value = cdiRateText,
                                 onValueChange = { cdiRateText = it.filter { c -> c.isDigit() || c == '.' } },
                                 label = { Text("Porcentagem do CDI") },
-                                placeholder = { Text("Ex: 115") },
+                                placeholder = { Text("Ex: 105 ou 115") },
                                 trailingIcon = { Text("% CDI ", fontWeight = FontWeight.Bold, color = MobillsGreenPrimary, fontSize = 13.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedBorderColor = MobillsGreenPrimary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                                    focusedLabelColor = MobillsGreenPrimary,
+                                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
 
                             val parsedCdi = cdiRateText.toDoubleOrNull() ?: 0.0
@@ -400,24 +434,26 @@ fun EditAccountDialog(
                                 val tempAcc = AccountItem(id = "", name = "", balance = parsedBal, cdiRatePercentage = parsedCdi)
                                 val estMonthly = tempAcc.calculateMonthlyYield()
                                 val estDaily = tempAcc.calculateDailyYield()
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFDCFCE7),
+                                    color = MobillsGreenPrimary.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, MobillsGreenPrimary.copy(alpha = 0.35f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(8.dp)) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
                                         Text(
-                                            text = "💰 Estimativa líquida real (CDI ~13,65% a.a.):",
+                                            text = "💰 Estimativa diária líquida (CDI atual ~14,15% a.a.):",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF166534)
+                                            color = MobillsGreenPrimary
                                         )
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "+${Formatters.formatMoney(estMonthly)} / mês  (~+${Formatters.formatMoney(estDaily)} / dia útil)",
+                                            text = "+${Formatters.formatMoney(estDaily)} por dia útil  (~+${Formatters.formatMoney(estMonthly)} / mês)",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = Color(0xFF15803D)
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }

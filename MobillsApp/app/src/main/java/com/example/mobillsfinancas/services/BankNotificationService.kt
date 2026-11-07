@@ -135,6 +135,24 @@ class BankNotificationService : NotificationListenerService() {
             return
         }
 
+        // 2. NUNCA processar notificações de operadoras telefônicas (TIM, Claro, Vivo, Oi) que enviam spam de ofertas/planos
+        if (packageName.contains("timbrasil") ||
+            packageName.contains("meutim") ||
+            packageName.contains("tim.") ||
+            packageName.contains(".tim") ||
+            packageName.contains("claro") ||
+            packageName.contains("claroflex") ||
+            packageName.contains("minhaclaro") ||
+            packageName.contains("vivo") ||
+            packageName.contains("meuvivo") ||
+            packageName.contains("telefonicavivo") ||
+            packageName.contains("oi.") ||
+            packageName.contains("minhaoi") ||
+            packageName.contains("algartelecom")) {
+            saveDebugLog(applicationContext, "🚫 Notificação de operadora telefônica ignorada ($packageName)")
+            return
+        }
+
         val extras = sbn.notification.extras ?: return
 
         // Extrai com segurança todos os possíveis campos de texto da notificação
@@ -232,7 +250,7 @@ class BankNotificationService : NotificationListenerService() {
         recentCaptures[captureKey] = now
 
         // 2. Identificação precisa do Tipo de Operação:
-        // A) É Receita / Depósito / Pix Recebido?
+        // A) É Receita / Depósito / Pix Recebido / Salário / Férias?
         val isIncome = fullContent.contains("Pix recebido", ignoreCase = true) ||
                 fullContent.contains("recebeu um Pix", ignoreCase = true) ||
                 fullContent.contains("recebeu via Pix", ignoreCase = true) ||
@@ -253,7 +271,30 @@ class BankNotificationService : NotificationListenerService() {
                 fullContent.contains("creditado na sua conta", ignoreCase = true) ||
                 fullContent.contains("reembolso", ignoreCase = true) ||
                 fullContent.contains("estorno", ignoreCase = true) ||
-                (fullContent.contains("você recebeu", ignoreCase = true) && !fullContent.contains("fatura", ignoreCase = true))
+                fullContent.contains("salário", ignoreCase = true) ||
+                fullContent.contains("salario", ignoreCase = true) ||
+                fullContent.contains("férias", ignoreCase = true) ||
+                fullContent.contains("ferias", ignoreCase = true) ||
+                fullContent.contains("folha de pagamento", ignoreCase = true) ||
+                fullContent.contains("13º", ignoreCase = true) ||
+                fullContent.contains("13o", ignoreCase = true) ||
+                fullContent.contains("décimo terceiro", ignoreCase = true) ||
+                fullContent.contains("decimo terceiro", ignoreCase = true) ||
+                fullContent.contains("remuneração", ignoreCase = true) ||
+                fullContent.contains("remuneracao", ignoreCase = true) ||
+                fullContent.contains("pro labore", ignoreCase = true) ||
+                fullContent.contains("pagamento recebido", ignoreCase = true) ||
+                fullContent.contains("recebeu um pagamento", ignoreCase = true) ||
+                fullContent.contains("caiu na conta", ignoreCase = true) ||
+                fullContent.contains("crédito em conta", ignoreCase = true) ||
+                fullContent.contains("credito em conta", ignoreCase = true) ||
+                (fullContent.contains("você recebeu", ignoreCase = true) &&
+                 !fullContent.contains("fatura", ignoreCase = true) &&
+                 !fullContent.contains("desconto", ignoreCase = true) &&
+                 !fullContent.contains("cupom", ignoreCase = true) &&
+                 !fullContent.contains("plano", ignoreCase = true) &&
+                 !fullContent.contains("bônus", ignoreCase = true) &&
+                 !fullContent.contains("bonus", ignoreCase = true))
 
         // B) É Pix Enviado / Transferência Enviada? (Bancos, Gmail e e-mails de confirmação)
         val isPixEnviado = fullContent.contains("Pix enviado", ignoreCase = true) ||
@@ -364,7 +405,7 @@ class BankNotificationService : NotificationListenerService() {
                        else if (isIncome) "Salário / Receita"
                        else inferCategory(storeName, paymentMethod)
 
-        val currentMonth = repository.selectedMonth.value.ifEmpty { "OUTUBRO 2026" }
+        val currentMonth = repository.selectedMonth.value.ifEmpty { MonthHelper.getCurrentMonthYear() }
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
         val today = dateFormat.format(Date())
 
@@ -449,7 +490,7 @@ class BankNotificationService : NotificationListenerService() {
             status = if (isIncome || isDebito || isPix) PaymentStatus.PAID else PaymentStatus.PENDING,
             currentInstallment = currentInstallment,
             totalInstallments = totalInstallments,
-            isSalaryReplacement = isSalary
+            isSalaryReplacement = isSalary || isVacationOr13th
         )
 
         // Adiciona a transação no repositório central
@@ -510,7 +551,7 @@ class BankNotificationService : NotificationListenerService() {
         return 0.0
     }
 
-    private fun isValidStoreCandidate(candidate: String): Boolean {
+    internal fun isValidStoreCandidate(candidate: String): Boolean {
         val clean = candidate.trim().lowercase()
         if (clean.length < 3 || clean.length > 45) return false
 
@@ -521,10 +562,22 @@ class BankNotificationService : NotificationListenerService() {
             "conta", "cartão", "cartao", "débito", "debito", "crédito", "credito",
             "banco", "saldo", "fatura", "dinheiro", "pix", "transferência", "transferencia",
             "valor", "reais", "este mês", "este mes", "rendendo", "investimento",
-            "parcela", "parcelas", "vezes"
+            "parcela", "parcelas", "vezes", "desconto", "bônus", "bonus", "cupom",
+            "recarga", "plano", "oferta", "promoção", "promocao"
         )
         if (clean in invalidNames) return false
         if (clean.startsWith("cartão") || clean.startsWith("cartao") || clean.startsWith("conta")) return false
+        if (clean.contains("desconto") ||
+            clean.contains("plano") ||
+            clean.contains("atualização") ||
+            clean.contains("atualizacao") ||
+            clean.contains("recarga") ||
+            clean.contains("bônus") ||
+            clean.contains("bonus") ||
+            clean.contains("cupom") ||
+            clean.contains("oferta") ||
+            clean.contains("promoção") ||
+            clean.contains("promocao")) return false
         return true
     }
 
@@ -559,6 +612,17 @@ class BankNotificationService : NotificationListenerService() {
         if (mCompra.find()) {
             val cand = mCompra.group(1)?.trim() ?: ""
             if (isValidStoreCandidate(cand)) return cand
+        }
+
+        // 3.1 "Você acaba de comprar R$ XX,XX em [Estabelecimento]" (Banco Inter)
+        val interComprarPattern = Pattern.compile(
+            "(?:acaba\\s+de\\s+comprar|comprou)\\s+(?:R\\$\\s*)?[0-9.,]+\\s+em\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*A\\s+compra|\\.|\\$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mInter = interComprarPattern.matcher(text)
+        if (mInter.find()) {
+            val cand = mInter.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
         // 4. "Você gastou R$ XX em [Estabelecimento]" (Nubank)
@@ -628,6 +692,9 @@ class BankNotificationService : NotificationListenerService() {
         if (trimmed.contains("IFOOD", ignoreCase = true)) {
             return "iFood"
         }
+        if (trimmed.contains("GOOGLE", ignoreCase = true) && (trimmed.contains("YOUTUB", ignoreCase = true) || trimmed.contains("YOUTUBE", ignoreCase = true))) {
+            return "Google YouTube"
+        }
         // Remove termos empresariais que costumam poluir a descrição de comprovantes bancários
         val cleaned = trimmed
             .replace(Regex("(?i)\\b(TECNOLOGIA LTDA|INSTITUICAO DE PAGAMENTO|PAGAMENTOS|TECNOLOGIA|LTDA|S\\.A\\.|SA|ME|EPP)\\b"), "")
@@ -636,7 +703,7 @@ class BankNotificationService : NotificationListenerService() {
         return cleaned.ifEmpty { trimmed }
     }
 
-    private fun isNonTransactionNotification(content: String): Boolean {
+    internal fun isNonTransactionNotification(content: String): Boolean {
         val lower = content.lowercase()
 
         // 1. Promoções de CDI, Rendimento de Conta, Investimentos, CDB, etc.
@@ -720,10 +787,38 @@ class BankNotificationService : NotificationListenerService() {
         )
         if (deniedOrReviewKeywords.any { lower.contains(it) }) return true
 
+        // 8. Operadoras de Telefonia, Planos Móveis, Recargas e Promoções de Operadora (TIM, Claro, Vivo, Oi)
+        val carrierKeywords = listOf(
+            "plano tim", "meu tim", "tim brasil", "timbrasil",
+            "plano claro", "claro flex", "minha claro",
+            "plano vivo", "vivo total", "vivo easy", "meu vivo",
+            "plano oi", "minha oi",
+            "atualização do seu plano", "atualizacao do seu plano",
+            "atualize seu plano", "upgrade de plano", "mudança de plano",
+            "desconto na atualização", "desconto na atualizacao",
+            "desconto no seu plano", "desconto no plano",
+            "pix de desconto", "ganhe de desconto", "de desconto na",
+            "recarga premiada", "bônus de recarga", "bonus de recarga",
+            "faça uma recarga", "faca uma recarga", "recarga de celular",
+            "recarga com bônus", "recarga com bonus", "recarga em dobro",
+            "saldo de recarga", "bônus de internet", "bonus de internet",
+            "promoção tim", "promocao tim", "oferta tim"
+        )
+        if (carrierKeywords.any { lower.contains(it) }) return true
+
+        // 9. Frases de desconto promocional genérico (não é transação financeira realizada)
+        val promoDiscountPhrases = listOf(
+            "de desconto na", "de desconto no", "de desconto em",
+            "r$ de desconto", "reais de desconto",
+            "pix de desconto", "ganhe desconto", "receba desconto",
+            "desconto na compra de", "desconto para você", "desconto pra você"
+        )
+        if (promoDiscountPhrases.any { lower.contains(it) }) return true
+
         return false
     }
 
-    private fun isValidTransactionConfirmation(content: String): Boolean {
+    internal fun isValidTransactionConfirmation(content: String): Boolean {
         val lower = content.lowercase()
 
         // Barreira primária: Compras negadas, recusadas, canceladas ou em revisão JAMAIS são confirmadas
@@ -745,6 +840,15 @@ class BankNotificationService : NotificationListenerService() {
                 lower.contains("compra no cartao") ||
                 lower.contains("compra no débito") ||
                 lower.contains("compra no debito") ||
+                lower.contains("compra no crédito") ||
+                lower.contains("compra no credito") ||
+                lower.contains("compra no crédito nacional") ||
+                lower.contains("compra no credito nacional") ||
+                lower.contains("compra foi no crédito") ||
+                lower.contains("compra foi no credito") ||
+                lower.contains("acaba de comprar") ||
+                lower.contains("você acaba de comprar") ||
+                lower.contains("voce acaba de comprar") ||
                 lower.contains("compra no valor de") ||
                 lower.contains("compra de r$") ||
                 lower.contains("você comprou") ||
@@ -796,7 +900,8 @@ class BankNotificationService : NotificationListenerService() {
 
         if (isTransferSent) return true
 
-        // 3. Receitas: Pix recebido, transferência recebida ou depósito creditado
+        // 3. Receitas: Pix recebido, transferência recebida, salário, férias ou depósito creditado
+        val isPromoKeywordPresent = lower.contains("desconto") || lower.contains("cupom") || lower.contains("plano") || lower.contains("bônus") || lower.contains("bonus")
         val isIncomeOrDeposit = lower.contains("pix recebido") ||
                 lower.contains("recebeu um pix") ||
                 lower.contains("recebeu via pix") ||
@@ -807,8 +912,7 @@ class BankNotificationService : NotificationListenerService() {
                 lower.contains("transferencia recebida") ||
                 lower.contains("você recebeu uma transferência") ||
                 lower.contains("voce recebeu uma transferencia") ||
-                lower.contains("você recebeu r$") ||
-                lower.contains("voce recebeu r$") ||
+                ((lower.contains("você recebeu r$") || lower.contains("voce recebeu r$")) && !isPromoKeywordPresent) ||
                 lower.contains("depositou r$") ||
                 lower.contains("você depositou") ||
                 lower.contains("voce depositou") ||
@@ -822,10 +926,27 @@ class BankNotificationService : NotificationListenerService() {
                 lower.contains("creditado na sua conta") ||
                 lower.contains("crédito recebido") ||
                 lower.contains("credito recebido") ||
+                lower.contains("crédito em conta") ||
+                lower.contains("credito em conta") ||
                 lower.contains("reembolso recebido") ||
                 lower.contains("reembolso de r$") ||
                 lower.contains("estorno realizado") ||
-                lower.contains("estorno de r$")
+                lower.contains("estorno de r$") ||
+                lower.contains("salário") ||
+                lower.contains("salario") ||
+                lower.contains("férias") ||
+                lower.contains("ferias") ||
+                lower.contains("folha de pagamento") ||
+                lower.contains("13º") ||
+                lower.contains("13o") ||
+                lower.contains("décimo terceiro") ||
+                lower.contains("decimo terceiro") ||
+                lower.contains("remuneração") ||
+                lower.contains("remuneracao") ||
+                lower.contains("pro labore") ||
+                lower.contains("pagamento recebido") ||
+                lower.contains("recebeu um pagamento") ||
+                lower.contains("caiu na conta")
 
         if (isIncomeOrDeposit) return true
 
@@ -840,7 +961,7 @@ class BankNotificationService : NotificationListenerService() {
             upper.contains("FARMACIA") || upper.contains("DROGA") || upper.contains("SAUDE") || upper.contains("MEDIC") -> "Saúde & Esporte"
             upper.contains("BARBEARIA") || upper.contains("CABEL") || upper.contains("SALÃO") -> "Cuidados Pessoais"
             upper.contains("LUZ") || upper.contains("ENERGIA") || upper.contains("AGUA") || upper.contains("CONDOMINIO") -> "Moradia"
-            upper.contains("NETFLIX") || upper.contains("SPOTIFY") || upper.contains("AMAZON") || upper.contains("YOUTUBE") -> "Serviços & Assinaturas"
+            upper.contains("NETFLIX") || upper.contains("SPOTIFY") || upper.contains("AMAZON") || upper.contains("YOUTUBE") || upper.contains("YOUTUB") || upper.contains("GOOGLE") -> "Serviços & Assinaturas"
             paymentMethod.contains("Cartão", ignoreCase = true) -> "Cartão de Crédito"
             else -> "Outros"
         }

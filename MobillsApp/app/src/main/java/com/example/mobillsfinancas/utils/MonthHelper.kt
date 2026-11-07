@@ -25,6 +25,13 @@ object MonthHelper {
         return "${MONTH_NAMES[safeMonth]} $year"
     }
 
+    fun getCurrentMonthYear(): String {
+        val cal = java.util.Calendar.getInstance()
+        val m = cal.get(java.util.Calendar.MONTH)
+        val y = cal.get(java.util.Calendar.YEAR)
+        return formatMonthYear(m, y)
+    }
+
     fun addMonths(currentMonthYear: String, offset: Int): String {
         val parsed = parseMonthYear(currentMonthYear) ?: Pair(9, 2026)
         var m = parsed.first + offset
