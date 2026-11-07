@@ -1,10 +1,12 @@
 package com.example.mobillsfinancas
 
+import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.PaymentType
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class BudgetAndTotalsTest {
@@ -63,7 +65,7 @@ class BudgetAndTotalsTest {
         // Cenário 1: Antes de transferir (Mercado Pago com saldo inicial R$ 173,92)
         var otherAccountsBalance = 173.92
         var transfersToOther = 0.0
-        var duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
+        var duplicateTransfer = if (salarySurplus > 0.0) minOf(transfersToOther, salarySurplus) else 0.0
         var netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
         var freeToSpend = (totalIncome + netOther) - totalExpense
         assertEquals(380.51, freeToSpend, 0.001)
@@ -72,7 +74,7 @@ class BudgetAndTotalsTest {
         // Saldo do Mercado Pago sobe para R$ 380,51
         otherAccountsBalance = 173.92 + 206.59 // 380.51
         transfersToOther = 206.59
-        duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
+        duplicateTransfer = if (salarySurplus > 0.0) minOf(transfersToOther, salarySurplus) else 0.0
         assertEquals(206.59, duplicateTransfer, 0.001)
         netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
         assertEquals(173.92, netOther, 0.001)
@@ -80,13 +82,33 @@ class BudgetAndTotalsTest {
         // DEVE CONTINUAR EXATAMENTE R$ 380,51 (e NUNCA R$ 587,10)
         assertEquals(380.51, freeToSpend, 0.001)
 
-        // Cenário 3: Usuário transfere parcialmente R$ 100,00
-        otherAccountsBalance = 173.92 + 100.0 // 273.92
-        transfersToOther = 100.0
-        duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
-        netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
-        freeToSpend = (totalIncome + netOther) - totalExpense
-        assertEquals(380.51, freeToSpend, 0.001)
+        // Cenário 3: Usuário tem transferências acumuladas (256,59) e saldo no MP2 de R$ 370,51
+        // O valor livre para gastar DEVE ser exatamente o saldo do Mercado Pago (R$ 370,51), NUNCA R$ 340,51!
+        val currentIncome = 5132.22
+        val currentCommitted = 4905.63
+        val currentSalarySurplus = currentIncome - currentCommitted // 226.59
+        val currentOtherBalance = 370.51
+        val currentTransfers = 256.59
+        val currentDuplicate = if (currentSalarySurplus > 0.0) minOf(currentTransfers, currentSalarySurplus) else 0.0
+        assertEquals(226.59, currentDuplicate, 0.001)
+        val currentNetOther = (currentOtherBalance - currentDuplicate).coerceAtLeast(0.0)
+        assertEquals(143.92, currentNetOther, 0.001)
+        val currentFreeToSpend = (currentIncome + currentNetOther) - currentCommitted
+        assertEquals(370.51, currentFreeToSpend, 0.001)
+
+        // Cenário 4: Usuário transfere R$ 170,00 do Inter para o Sofisa Direto!
+        // Sofisa recebe 170,00, saldo do Sofisa vai para 170,00.
+        // A transferência NÃO DEVE computar valor livre: o dinheiro livre para gastar DEVE continuar R$ 370,51 (e NUNCA R$ 540,51)!
+        val sofisaBalance = 170.0
+        val transfersToSofisa = 170.0
+        val sofisaNetContribution = (sofisaBalance - transfersToSofisa).coerceAtLeast(0.0)
+        assertEquals(0.0, sofisaNetContribution, 0.001)
+
+        val totalOtherEffectiveBalance = currentOtherBalance + sofisaNetContribution // 370.51 + 0.0 = 370.51
+        val finalDuplicate = if (currentSalarySurplus > 0.0) minOf(currentTransfers, currentSalarySurplus) else 0.0
+        val finalNetOther = (totalOtherEffectiveBalance - finalDuplicate).coerceAtLeast(0.0)
+        val finalFreeToSpend = (currentIncome + finalNetOther) - currentCommitted
+        assertEquals(370.51, finalFreeToSpend, 0.001) // Continua intacto em R$ 370,51!
     }
 
     @Test
@@ -104,5 +126,141 @@ class BudgetAndTotalsTest {
 
         assertEquals(4968.14, totalContas, 0.001)
         assertEquals(2968.14, saldoLivreBancos, 0.001)
+    }
+
+    @Test
+    fun testFixedExpenseAndFixedIncomeFilters() {
+        val luz = com.example.mobillsfinancas.data.TransactionItem(
+            description = "Luz",
+            amount = 200.0,
+            type = com.example.mobillsfinancas.data.TransactionType.EXPENSE,
+            monthYear = "2026-11",
+            isRecurring = true
+        )
+        val chuveiro = com.example.mobillsfinancas.data.TransactionItem(
+            description = "Chuveiro",
+            amount = 100.0,
+            type = com.example.mobillsfinancas.data.TransactionType.EXPENSE,
+            monthYear = "2026-11",
+            isRecurring = false
+        )
+        val salario = com.example.mobillsfinancas.data.TransactionItem(
+            description = "Salário",
+            amount = 3000.0,
+            type = com.example.mobillsfinancas.data.TransactionType.INCOME,
+            monthYear = "2026-11",
+            isRecurring = true,
+            isSalaryReplacement = true
+        )
+        val pixAvulso = com.example.mobillsfinancas.data.TransactionItem(
+            description = "Pix Venda",
+            amount = 50.0,
+            type = com.example.mobillsfinancas.data.TransactionType.INCOME,
+            monthYear = "2026-11",
+            isRecurring = false,
+            isSalaryReplacement = false
+        )
+
+        val list = listOf(luz, chuveiro, salario, pixAvulso)
+
+        // Filtro Despesas Fixas (index 3)
+        val despesasFixas = list.filter { it.type == com.example.mobillsfinancas.data.TransactionType.EXPENSE && it.isRecurring }
+        assertEquals(1, despesasFixas.size)
+        assertEquals("Luz", despesasFixas.first().description)
+        assertEquals(200.0, despesasFixas.first().amount, 0.001)
+
+        // Filtro Receitas Fixas (index 4)
+        val receitasFixas = list.filter { it.type == com.example.mobillsfinancas.data.TransactionType.INCOME && (it.isRecurring || it.isSalaryReplacement) }
+        assertEquals(1, receitasFixas.size)
+        assertEquals("Salário", receitasFixas.first().description)
+        assertEquals(3000.0, receitasFixas.first().amount, 0.001)
+    }
+
+    @Test
+    fun testDefaultAccountMarkDoesNotDistortPrimarySalaryAccountAndReceitas() {
+        // Cenário real do usuário:
+        // Conta Inter recebe o salário de R$ 5.102,22 e tem saldo operacional de R$ 2.787,63.
+        // Mercado Pago 2 é marcado pelo usuário como "⭐ Conta Padrão" para compras diárias e tem saldo de R$ 370,51.
+        val inter = AccountItem(
+            id = "acc_inter",
+            name = "Conta Inter",
+            balance = 2787.63,
+            includeInOverallBalance = true,
+            isDefault = false
+        )
+        val mp2 = AccountItem(
+            id = "acc_mp",
+            name = "Mercado Pago 2",
+            balance = 370.51,
+            includeInOverallBalance = true,
+            isDefault = true // Usuário colocou como Conta Padrão!
+        )
+        val accounts = listOf(mp2, inter)
+
+        // Receitas do mês que caíram na Conta Inter
+        val salario = TransactionItem(
+            id = "1",
+            description = "Salário",
+            amount = 3000.0,
+            type = TransactionType.INCOME,
+            accountOrCardName = "Conta Inter",
+            monthYear = "NOVEMBRO 2026"
+        )
+        val ferias = TransactionItem(
+            id = "2",
+            description = "Férias",
+            amount = 2102.22,
+            type = TransactionType.INCOME,
+            accountOrCardName = "Conta Inter",
+            monthYear = "NOVEMBRO 2026"
+        )
+        val items = listOf(salario, ferias)
+
+        // 1. Identificação dinâmica da conta operacional onde entra o salário
+        val salaryAccountName = items
+            .filter { it.type == TransactionType.INCOME }
+            .groupBy { it.accountOrCardName }
+            .maxByOrNull { entry -> entry.value.sumOf { it.amount } }?.key
+
+        assertEquals("Conta Inter", salaryAccountName)
+
+        val primaryAccount = accounts.find { it.name.trim().equals(salaryAccountName?.trim(), ignoreCase = true) }
+            ?: accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
+            ?: accounts.find { it.isDefault }
+
+        // A conta principal DEVE ser Conta Inter (onde entrou o salário), MESMO MP2 sendo isDefault
+        assertEquals("acc_inter", primaryAccount?.id)
+        assertEquals("Conta Inter", primaryAccount?.name)
+
+        // As outras contas serão apenas as secundárias (MP2)
+        val otherAccounts = accounts.filter { acc ->
+            acc.includeInOverallBalance && acc.balance > 0.0 && acc.id != primaryAccount?.id
+        }
+        assertEquals(1, otherAccounts.size)
+        assertEquals("acc_mp", otherAccounts.first().id)
+        val otherAccountsBalance = otherAccounts.sumOf { it.balance }
+        assertEquals(370.51, otherAccountsBalance, 0.001)
+
+        // 2. Transferência de R$ 206,59 do Inter para o MP2
+        val baseIncome = items.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+        val totalCommitted = 4895.63 // Contas fixas + Reserva Cofrinho + Mercado
+        val salarySurplus = baseIncome - totalCommitted // 206.59
+        val transfersToOtherAccounts = 206.59
+        val duplicateTransferAmount = if (salarySurplus > 0.0) minOf(transfersToOtherAccounts, salarySurplus) else 0.0
+        val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount)
+        assertEquals(163.92, netOtherAccountsBalance, 0.001)
+
+        // 3. Receitas e Sobrou para Gastar Comigo
+        val effectiveIncome = baseIncome + netOtherAccountsBalance
+        val freeToSpend = effectiveIncome - totalCommitted // 370.51
+
+        // Verificações essenciais:
+        // Receitas do mês NUNCA deve somar saldo de contas bancárias (não pode ser 7.919,85)
+        assertEquals(5102.22, baseIncome, 0.001)
+        assertNotEquals(7919.85, baseIncome, 0.001)
+
+        // Sobrou livre deve bater com o bolso real (R$ 370,51), NUNCA R$ 3.014,22
+        assertEquals(370.51, freeToSpend, 0.001)
+        assertNotEquals(3014.22, freeToSpend, 0.001)
     }
 }

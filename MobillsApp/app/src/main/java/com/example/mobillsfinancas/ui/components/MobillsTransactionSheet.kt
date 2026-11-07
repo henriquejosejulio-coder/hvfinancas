@@ -1563,23 +1563,37 @@ fun MobillsTransactionSheet(
                         if (existingItem != null && onDelete != null) {
                             OutlinedButton(
                                 onClick = { showDeleteConfirmDialog = true },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseRed),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = ExpenseRed.copy(alpha = 0.08f),
+                                    contentColor = ExpenseRed
+                                ),
+                                border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.4f)),
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
                             ) {
-                                Text(
-                                    text = "🗑️ Excluir",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text("🗑️", fontSize = 15.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Excluir",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = ExpenseRed,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         } else {
                             OutlinedButton(
                                 onClick = onDismiss,
                                 shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
@@ -1587,6 +1601,7 @@ fun MobillsTransactionSheet(
                                 Text(
                                     text = "Cancelar",
                                     fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
                                     maxLines = 1
                                 )
                             }
@@ -1664,17 +1679,17 @@ fun MobillsTransactionSheet(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = if (type == TransactionType.EXPENSE) ExpenseRed else IncomeGreen),
                             shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
                             modifier = Modifier
-                                .weight(if (existingItem != null) 1.5f else 1.3f)
+                                .weight(1.3f)
                                 .height(48.dp)
                         ) {
                             Text(
-                                text = if (existingItem != null) "Salvar Alterações" else "Salvar",
+                                text = "Salvar",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 1
                             )
                         }
                     }

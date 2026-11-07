@@ -215,7 +215,7 @@ fun OverviewCard(
                             Text("✏️", fontSize = 10.sp)
                         }
                         Text(
-                            text = Formatters.formatMoney(effectiveIncome, hideValues),
+                            text = Formatters.formatMoney(baseIncome, hideValues),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = IncomeGreen
@@ -281,20 +281,11 @@ fun OverviewCard(
                     Text("+ " + Formatters.formatMoney(baseIncome, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = IncomeGreen)
                 }
 
-                if (otherAccountsBalance > 0.0) {
-                    Spacer(modifier = Modifier.height(3.dp))
-                    val label = if (otherAccountsLabel.isNotBlank()) "🏦 Saldo em $otherAccountsLabel" else "🏦 Saldo em outras contas"
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("+ " + Formatters.formatMoney(otherAccountsBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
-                    }
-                }
-
-                if (duplicateTransferAmount > 0.0) {
+                if (netOtherAccountsBalance > 0.0) {
                     Spacer(modifier = Modifier.height(3.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("⇄ Já transferido da conta principal", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("- " + Formatters.formatMoney(duplicateTransferAmount, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
+                        Text("🏦 Saldo que já havia em conta", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("+ " + Formatters.formatMoney(netOtherAccountsBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
                     }
                 }
 

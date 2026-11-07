@@ -557,23 +557,25 @@ fun MainScreen(
 
             // Diálogo de Editar Transferência Existente
             if (editingTransferItem != null) {
-                TransferDialog(
-                    accounts = accounts,
-                    existingTransfer = editingTransferItem,
-                    onDismiss = { editingTransferItem = null },
-                    onTransfer = { fromId, toId, amt, isScheduled, date, isRecurring ->
-                        viewModel.transfer(fromId, toId, amt, isScheduled, date, isRecurring)
-                        editingTransferItem = null
-                    },
-                    onUpdateTransfer = { existing, fromId, toId, amt, isScheduled, date, isRecurring ->
-                        viewModel.updateTransfer(existing, fromId, toId, amt, isScheduled, date, isRecurring)
-                        editingTransferItem = null
-                    },
-                    onDeleteTransfer = { transferToDelete ->
-                        viewModel.deleteTransaction(transferToDelete.id, transferToDelete.monthYear, true)
-                        editingTransferItem = null
-                    }
-                )
+                key(editingTransferItem?.id) {
+                    TransferDialog(
+                        accounts = accounts,
+                        existingTransfer = editingTransferItem,
+                        onDismiss = { editingTransferItem = null },
+                        onTransfer = { fromId, toId, amt, isScheduled, date, isRecurring ->
+                            viewModel.transfer(fromId, toId, amt, isScheduled, date, isRecurring)
+                            editingTransferItem = null
+                        },
+                        onUpdateTransfer = { existing, fromId, toId, amt, isScheduled, date, isRecurring ->
+                            viewModel.updateTransfer(existing, fromId, toId, amt, isScheduled, date, isRecurring)
+                            editingTransferItem = null
+                        },
+                        onDeleteTransfer = { transferToDelete ->
+                            viewModel.deleteTransaction(transferToDelete.id, transferToDelete.monthYear, true)
+                            editingTransferItem = null
+                        }
+                    )
+                }
             }
 
             // Diálogos auxiliares de Categoria e Tag
@@ -1375,11 +1377,19 @@ fun DashboardTab(
         }
 
         item {
-            val primaryAccount = accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
+            // Identifica a conta operacional principal (onde entra o salário/maior receita do mês)
+            val salaryAccountName = (currentMonthData?.items ?: emptyList())
+                .filter { it.type == TransactionType.INCOME }
+                .groupBy { it.accountOrCardName }
+                .maxByOrNull { entry -> entry.value.sumOf { it.amount } }?.key
+
+            val primaryAccount = accounts.find { it.name.trim().equals(salaryAccountName?.trim(), ignoreCase = true) }
+                ?: accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
+                ?: accounts.find { it.isDefault }
+
             val otherAccounts = accounts.filter { acc ->
                 acc.includeInOverallBalance && acc.balance > 0.0 && (primaryAccount == null || acc.id != primaryAccount.id)
             }
-            val otherAccountsBalance = otherAccounts.sumOf { it.balance }
             val otherAccountsLabel = if (otherAccounts.size == 1) otherAccounts.first().name else if (otherAccounts.size > 1) "${otherAccounts.size} contas" else ""
 
             val otherAccountIds = otherAccounts.map { it.id }.toSet()
@@ -1387,21 +1397,73 @@ fun DashboardTab(
             val primaryAccountId = primaryAccount?.id
             val primaryAccountName = primaryAccount?.name?.trim()?.lowercase() ?: ""
 
-            val transfersToOtherAccounts = (currentMonthData?.items ?: emptyList()).filter { item ->
+            val checkingTransfers = (currentMonthData?.items ?: emptyList()).filter { item ->
                 item.type == TransactionType.TRANSFER &&
                 item.status == PaymentStatus.PAID &&
                 !item.includeInBudget
-            }.filter { item ->
+            }
+
+            // Identifica a conta padrão de gastos/bolso do usuário (ex: Mercado Pago 2)
+            val spendingAccount = accounts.find { it.isDefault && it.id != primaryAccountId }
+                ?: accounts.find { it.type == AccountType.WALLET && it.id != primaryAccountId }
+                ?: otherAccounts.firstOrNull()
+
+            val spendingAccountId = spendingAccount?.id
+            val spendingAccountName = spendingAccount?.name?.trim()?.lowercase() ?: ""
+
+            // Transferências líquidas da conta principal para a conta de gastos do dia a dia
+            val transfersOutToSpending = checkingTransfers.filter { item ->
                 val (fromAcc, toAcc) = FinanceRepository.resolveTransferAccounts(item, accounts)
                 val isFromPrimary = fromAcc?.id == primaryAccountId ||
                         (primaryAccountName.isNotBlank() && (
                             item.accountOrCardName.trim().equals(primaryAccountName, ignoreCase = true) ||
                             item.description.lowercase().contains(primaryAccountName)
                         ))
-                val isToOther = (toAcc != null && otherAccountIds.contains(toAcc.id)) ||
-                        otherAccountNames.any { name -> item.description.lowercase().contains(name) }
-                isFromPrimary && isToOther
+                val isToSpending = toAcc?.id == spendingAccountId ||
+                        (spendingAccountName.isNotBlank() && item.description.lowercase().contains(spendingAccountName))
+                isFromPrimary && isToSpending
             }.sumOf { it.amount }
+
+            val transfersInFromSpending = checkingTransfers.filter { item ->
+                val (fromAcc, toAcc) = FinanceRepository.resolveTransferAccounts(item, accounts)
+                val isToPrimary = toAcc?.id == primaryAccountId ||
+                        (primaryAccountName.isNotBlank() && item.description.lowercase().contains(primaryAccountName))
+                val isFromSpending = fromAcc?.id == spendingAccountId ||
+                        (spendingAccountName.isNotBlank() && item.accountOrCardName.trim().equals(spendingAccountName, ignoreCase = true))
+                isFromSpending && isToPrimary
+            }.sumOf { it.amount }
+
+            val transfersToSpendingAccount = maxOf(0.0, transfersOutToSpending - transfersInFromSpending)
+
+            // Para qualquer outra conta secundária (ex: Sofisa Direto, Nubank), qualquer transferência recebida
+            // da conta principal NÃO computa valor livre (pois foi apenas remanejamento de saldo, e não receita).
+            // Portanto, deduz-se o saldo transferido da conta principal diretamente daquela conta.
+            val nonSpendingAccountsNetBalance = otherAccounts.filter { it.id != spendingAccountId }.sumOf { acc ->
+                val accName = acc.name.trim().lowercase()
+                val outFromPrimaryToAcc = checkingTransfers.filter { item ->
+                    val (from, to) = FinanceRepository.resolveTransferAccounts(item, accounts)
+                    val isFrom = from?.id == primaryAccountId ||
+                            (primaryAccountName.isNotBlank() && (
+                                item.accountOrCardName.trim().equals(primaryAccountName, ignoreCase = true) ||
+                                item.description.lowercase().contains(primaryAccountName)
+                            ))
+                    val isTo = to?.id == acc.id || item.description.lowercase().contains(accName)
+                    isFrom && isTo
+                }.sumOf { it.amount }
+
+                val inToPrimaryFromAcc = checkingTransfers.filter { item ->
+                    val (from, to) = FinanceRepository.resolveTransferAccounts(item, accounts)
+                    val isTo = to?.id == primaryAccountId ||
+                            (primaryAccountName.isNotBlank() && item.description.lowercase().contains(primaryAccountName))
+                    val isFrom = from?.id == acc.id || item.accountOrCardName.trim().equals(accName, ignoreCase = true)
+                    isFrom && isTo
+                }.sumOf { it.amount }
+
+                val netTransferred = maxOf(0.0, outFromPrimaryToAcc - inToPrimaryFromAcc)
+                maxOf(0.0, acc.balance - netTransferred)
+            }
+
+            val effectiveOtherAccountsBalance = (spendingAccount?.balance ?: 0.0) + nonSpendingAccountsNetBalance
 
             OverviewCard(
                 totalIncome = totalInc,
@@ -1412,9 +1474,9 @@ fun DashboardTab(
                 unspentBudgets = unspentBudgets,
                 items = currentMonthData?.items ?: emptyList(),
                 hideValues = hideValues,
-                otherAccountsBalance = otherAccountsBalance,
+                otherAccountsBalance = effectiveOtherAccountsBalance,
                 otherAccountsLabel = otherAccountsLabel,
-                transfersToOtherAccounts = transfersToOtherAccounts,
+                transfersToOtherAccounts = transfersToSpendingAccount,
                 onAdjustBalance = { onAdjustBalance(0) }
             )
         }
@@ -1684,7 +1746,15 @@ fun TransactionsTab(
     onDeleteMultipleTransactions: (Set<String>) -> Unit
 ) {
     var filterIndex by remember { mutableIntStateOf(0) }
-    val filters = listOf("Todos", "Despesas", "Receitas", "Pendentes", "Pagos")
+    val filters = listOf(
+        "Todos",
+        "Despesas",
+        "Receitas",
+        "📌 Desp. Fixas",
+        "💵 Rec. Fixas",
+        "Pendentes",
+        "Pagos"
+    )
     var showClearMonthDialog by remember { mutableStateOf(false) }
     var isBulkMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -1696,8 +1766,10 @@ fun TransactionsTab(
         when (filterIndex) {
             1 -> allItems.filter { it.type == TransactionType.EXPENSE }
             2 -> allItems.filter { it.type == TransactionType.INCOME }
-            3 -> allItems.filter { it.status == PaymentStatus.PENDING }
-            4 -> allItems.filter { it.status == PaymentStatus.PAID }
+            3 -> allItems.filter { it.type == TransactionType.EXPENSE && it.isRecurring }
+            4 -> allItems.filter { it.type == TransactionType.INCOME && (it.isRecurring || it.isSalaryReplacement) }
+            5 -> allItems.filter { it.status == PaymentStatus.PENDING }
+            6 -> allItems.filter { it.status == PaymentStatus.PAID }
             else -> allItems
         }
     }
@@ -1743,35 +1815,98 @@ fun TransactionsTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Lançamentos (${filteredItems.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (allItems.isNotEmpty()) {
-                            TextButton(
-                                onClick = {
-                                    isBulkMode = !isBulkMode
-                                    selectedIds = emptySet()
+                    Column(modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp)) {
+                        Text(
+                            text = "Lançamentos (${filteredItems.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (filterIndex != 0 && filteredItems.isNotEmpty()) {
+                            val totalFiltered = filteredItems.sumOf { it.amount }
+                            Text(
+                                text = "Total no filtro: ${Formatters.formatMoney(totalFiltered, hideValues)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (filterIndex == 1 || filterIndex == 3) com.example.mobillsfinancas.theme.ExpenseRed
+                                        else if (filterIndex == 2 || filterIndex == 4) com.example.mobillsfinancas.theme.IncomeGreen
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (allItems.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (isBulkMode) {
+                                Surface(
+                                    onClick = {
+                                        isBulkMode = false
+                                        selectedIds = emptySet()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = com.example.mobillsfinancas.theme.ExpenseRed.copy(alpha = 0.12f),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = "✕ Fechar",
+                                            color = com.example.mobillsfinancas.theme.ExpenseRed,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
-                            ) {
-                                Text(
-                                    text = if (isBulkMode) "✕ Fechar" else "☑️ Alteração em Massa",
-                                    color = if (isBulkMode) com.example.mobillsfinancas.theme.ExpenseRed else MobillsGreenPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            } else {
+                                Surface(
+                                    onClick = {
+                                        isBulkMode = true
+                                        selectedIds = emptySet()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MobillsGreenPrimary.copy(alpha = 0.12f),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "☑️ Em Massa",
+                                            color = MobillsGreenPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
 
-                            if (!isBulkMode) {
-                                TextButton(onClick = { showClearMonthDialog = true }) {
-                                    Text(
-                                        text = "🗑️ Limpar Mês",
-                                        color = com.example.mobillsfinancas.theme.ExpenseRed,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                Surface(
+                                    onClick = { showClearMonthDialog = true },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = com.example.mobillsfinancas.theme.ExpenseRed.copy(alpha = 0.12f),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "🗑️ Limpar Mês",
+                                            color = com.example.mobillsfinancas.theme.ExpenseRed,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
                             }
                         }

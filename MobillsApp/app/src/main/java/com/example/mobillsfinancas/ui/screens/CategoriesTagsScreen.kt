@@ -79,7 +79,7 @@ fun CategoriesTagsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = "Categorias de Gastos e Receitas",
                                 style = MaterialTheme.typography.titleMedium,
@@ -93,9 +93,19 @@ fun CategoriesTagsScreen(
                         }
                         Button(
                             onClick = { showAddCategoryDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp)
                         ) {
-                            Text("+ Categoria", color = Color.White, fontSize = 12.sp)
+                            Text(
+                                text = "+ Categoria",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -181,7 +191,7 @@ fun CategoriesTagsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = "Tags de Agrupamento (#)",
                                 style = MaterialTheme.typography.titleMedium,
@@ -195,9 +205,19 @@ fun CategoriesTagsScreen(
                         }
                         Button(
                             onClick = { showAddTagDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                            colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp)
                         ) {
-                            Text("+ Nova Tag", color = Color.White, fontSize = 12.sp)
+                            Text(
+                                text = "+ Nova Tag",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }

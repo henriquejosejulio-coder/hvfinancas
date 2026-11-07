@@ -31,7 +31,7 @@ fun YieldDialog(
     isAutoYieldEnabled: Boolean,
     onToggleAutoYield: (Boolean) -> Unit,
     onApplyYields: (Map<String, Double>) -> Unit,
-    onDirectBalanceUpdate: (AccountItem, Double) -> Unit,
+    onDirectBalanceUpdate: ((AccountItem, Double) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val yieldAccounts = remember(accounts) {
@@ -274,35 +274,7 @@ fun YieldDialog(
                                         }
                                     }
 
-                                    // Atalhos Rápidos para bater com a tela do Mercado Pago
-                                    val isMercadoPagoChecking = acc.name.contains("Mercado Pago", ignoreCase = true) && acc.includeInOverallBalance
-                                    val isMercadoPagoCofrinho = (acc.name.contains("Cofrinho", ignoreCase = true) || acc.name.contains("Reserva", ignoreCase = true)) && !acc.includeInOverallBalance
 
-                                    if (isMercadoPagoChecking || isMercadoPagoCofrinho) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        val targetSaldo = if (isMercadoPagoChecking) 212.31 else 429.10
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Bater com extrato real do banco:",
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            FilledTonalButton(
-                                                onClick = {
-                                                    onDirectBalanceUpdate(acc, targetSaldo)
-                                                    yieldInputs[acc.id] = "0.00"
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                modifier = Modifier.height(28.dp)
-                                            ) {
-                                                Text("🎯 Ajustar p/ ${Formatters.formatMoney(targetSaldo)}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
                                 }
                             }
                         }

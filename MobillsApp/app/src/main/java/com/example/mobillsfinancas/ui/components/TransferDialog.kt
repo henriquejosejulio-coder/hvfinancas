@@ -30,6 +30,7 @@ import java.util.Locale
 import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.TransactionItem
+import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
 import com.example.mobillsfinancas.utils.Formatters
 
@@ -87,9 +88,9 @@ fun TransferDialog(
         if (targetIdx != -1) targetIdx else if (accounts.size > 1) 1 else 0
     }
 
-    var fromIndex by remember { mutableIntStateOf(initialFromIndex) }
-    var toIndex by remember { mutableIntStateOf(initialToIndex) }
-    var amountTextFieldValue by remember {
+    var fromIndex by remember(existingTransfer?.id) { mutableIntStateOf(initialFromIndex) }
+    var toIndex by remember(existingTransfer?.id) { mutableIntStateOf(initialToIndex) }
+    var amountTextFieldValue by remember(existingTransfer?.id) {
         mutableStateOf(
             if (existingTransfer != null && existingTransfer.amount > 0)
                 Formatters.toCurrencyTextFieldValue(existingTransfer.amount)
@@ -98,15 +99,15 @@ fun TransferDialog(
         )
     }
     val amountText = amountTextFieldValue.text
-    var isScheduled by remember {
+    var isScheduled by remember(existingTransfer?.id) {
         mutableStateOf(
             if (existingTransfer != null) existingTransfer.status == PaymentStatus.PENDING else false
         )
     }
-    var isRecurring by remember {
+    var isRecurring by remember(existingTransfer?.id) {
         mutableStateOf(existingTransfer?.isRecurring ?: false)
     }
-    var dateText by remember {
+    var dateText by remember(existingTransfer?.id) {
         mutableStateOf(existingTransfer?.date?.ifBlank { Formatters.todayDateString() } ?: Formatters.todayDateString())
     }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -423,54 +424,91 @@ fun TransferDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (existingTransfer != null && onDeleteTransfer != null) {
-                        TextButton(
+                        OutlinedButton(
                             onClick = { showDeleteConfirmDialog = true },
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = ExpenseRed.copy(alpha = 0.08f),
+                                contentColor = ExpenseRed
+                            ),
+                            border = BorderStroke(1.dp, ExpenseRed.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
                         ) {
-                            Text("🗑️ Excluir", fontWeight = FontWeight.Bold)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text("🗑️", fontSize = 15.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Excluir",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = ExpenseRed,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     } else {
-                        Spacer(modifier = Modifier.width(1.dp))
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onDismiss) {
-                            Text("Cancelar")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val amt = Formatters.parseCurrency(amountText)
-                                if (amt > 0 && fromIndex != toIndex) {
-                                    if (existingTransfer != null && onUpdateTransfer != null) {
-                                        onUpdateTransfer(
-                                            existingTransfer,
-                                            fromAcc.id,
-                                            toAcc.id,
-                                            amt,
-                                            isScheduled,
-                                            dateText.trim(),
-                                            isRecurring
-                                        )
-                                    } else {
-                                        onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim(), isRecurring)
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isScheduled) Color(0xFFFF9800) else MobillsGreenPrimary
-                            )
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
                         ) {
                             Text(
-                                text = if (existingTransfer != null) "Salvar Alterações" else (if (isScheduled) "Agendar" else "Transferir"),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
+                                text = "Cancelar",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1
                             )
                         }
+                    }
+
+                    Button(
+                        onClick = {
+                            val amt = Formatters.parseCurrency(amountText)
+                            if (amt > 0 && fromIndex != toIndex) {
+                                if (existingTransfer != null && onUpdateTransfer != null) {
+                                    onUpdateTransfer(
+                                        existingTransfer,
+                                        fromAcc.id,
+                                        toAcc.id,
+                                        amt,
+                                        isScheduled,
+                                        dateText.trim(),
+                                        isRecurring
+                                    )
+                                } else {
+                                    onTransfer(fromAcc.id, toAcc.id, amt, isScheduled, dateText.trim(), isRecurring)
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isScheduled) Color(0xFFFF9800) else MobillsGreenPrimary
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(48.dp)
+                    ) {
+                        Text(
+                            text = if (existingTransfer != null) "Salvar" else (if (isScheduled) "Agendar" else "Transferir"),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            maxLines = 1
+                        )
                     }
                 }
             }

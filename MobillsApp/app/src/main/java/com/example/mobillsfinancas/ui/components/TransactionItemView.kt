@@ -40,7 +40,7 @@ fun TransactionItemView(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 14.dp, vertical = 3.dp)
             .clickable {
                 if (isSelectionMode) {
                     onToggleSelect?.invoke(item.id)
@@ -48,13 +48,13 @@ fun TransactionItemView(
                     onEdit(item)
                 }
             },
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) MobillsGreenPrimary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 2.dp else 1.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -66,79 +66,36 @@ fun TransactionItemView(
                         checked = isSelected,
                         onCheckedChange = { onToggleSelect?.invoke(item.id) },
                         colors = CheckboxDefaults.colors(checkedColor = MobillsGreenPrimary),
-                        modifier = Modifier.padding(end = 6.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     )
                 }
 
                 // Ícone redondo colorido da categoria estilo Mobills
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(Color(item.categoryColorHex).copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(item.categoryIcon, fontSize = 20.sp)
+                    Text(item.categoryIcon, fontSize = 18.sp)
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 // Descrição, Categoria e Conta/Cartão
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = item.description,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        if (item.isRecurring) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
-                                color = MobillsGreenPrimary.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "📌 FIXA",
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MobillsGreenPrimary
-                                )
-                            }
-                        } else if (item.totalInstallments > 1) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    text = "${item.currentInstallment}/${item.totalInstallments}",
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                        }
-                        if (!item.includeInBudget) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
-                                color = Color(0xFF64748B).copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "FORA DO TETO",
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = item.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     val payTypeText = when (item.paymentType) {
                         PaymentType.CREDIT_CARD -> "💳 Crédito"
                         PaymentType.DEBIT_CARD -> "🏦 Débito"
@@ -151,9 +108,10 @@ fun TransactionItemView(
                     } else {
                         item.monthYear
                     }
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = 3.dp)
                     ) {
                         if (displayDate.isNotBlank()) {
                             Surface(
@@ -165,14 +123,62 @@ fun TransactionItemView(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                         }
+
+                        if (item.isRecurring) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MobillsGreenPrimary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "📌 FIXA",
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MobillsGreenPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        } else if (item.totalInstallments > 1) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    text = "${item.currentInstallment}/${item.totalInstallments}",
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        if (!item.includeInBudget) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF64748B).copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "FORA DO TETO",
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
                         Text(
-                            text = "${item.category} • ${item.accountOrCardName} ($payTypeText)",
+                            text = "${item.category} • ${item.accountOrCardName}",
                             style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -181,7 +187,7 @@ fun TransactionItemView(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
                 // Valor e Status
                 Column(horizontalAlignment = Alignment.End) {
@@ -244,16 +250,16 @@ fun TransactionItemView(
                 if (!isSelectionMode) {
                     IconButton(
                         onClick = { onEdit(item) },
-                        modifier = Modifier.size(28.dp).padding(start = 4.dp)
+                        modifier = Modifier.size(24.dp).padding(start = 2.dp)
                     ) {
-                        Text("✏️", fontSize = 14.sp)
+                        Text("✏️", fontSize = 13.sp)
                     }
 
                     IconButton(
                         onClick = { showDeleteConfirmDialog = true },
-                        modifier = Modifier.size(28.dp).padding(start = 2.dp)
+                        modifier = Modifier.size(24.dp).padding(start = 2.dp)
                     ) {
-                        Text("×", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Text("×", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                     }
                 }
             }
