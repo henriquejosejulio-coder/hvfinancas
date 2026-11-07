@@ -33,6 +33,7 @@ fun OverviewCard(
     hideValues: Boolean,
     otherAccountsBalance: Double = 0.0,
     otherAccountsLabel: String = "",
+    transfersToOtherAccounts: Double = 0.0,
     onAdjustBalance: (() -> Unit)? = null
 ) {
     var showBreakdown by remember { mutableStateOf(false) }
@@ -40,13 +41,29 @@ fun OverviewCard(
     // Renda do mês base (salários e receitas do mês)
     val baseIncome = if (previousMonthBalance > 0.0) totalIncome else currentMonthIncome
 
-    // Renda total considerada: receitas do mês + saldo disponível em outras contas correntes (ex: Mercado Pago)
-    val effectiveIncome = baseIncome + otherAccountsBalance
-
     // Total comprometido = Despesas já lançadas no mês + Tetos reservados ainda não gastos (ex: R$ 700 do Mercado)
     val totalCommitted = totalExpense + unspentBudgets
 
-    // Disponível Real para Gastar Comigo = Receita - Total Comprometido
+    // Sobra líquida do mês gerada pelo salário e receitas
+    val salarySurplus = baseIncome - totalCommitted
+
+    // Evita contagem dupla de transferências internas:
+    // Se o usuário transferiu parte da sobra do salário da conta principal para outra conta corrente (ex: Mercado Pago),
+    // esse valor transferido já está dentro de baseIncome E também dentro do saldo da outra conta.
+    // O abatimento é no máximo a sobra do salário que foi transferida.
+    val duplicateTransferAmount = if (salarySurplus > 0.0) {
+        minOf(transfersToOtherAccounts, salarySurplus)
+    } else {
+        0.0
+    }
+
+    // Saldo externo real em outras contas (descontando o que veio de transferência da sobra salarial)
+    val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount)
+
+    // Renda total considerada: receitas do mês + saldo externo disponível em outras contas correntes
+    val effectiveIncome = baseIncome + netOtherAccountsBalance
+
+    // Disponível Real para Gastar Comigo = Receita Efetiva - Total Comprometido
     val freeToSpend = effectiveIncome - totalCommitted
 
     Card(
@@ -270,6 +287,14 @@ fun OverviewCard(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("+ " + Formatters.formatMoney(otherAccountsBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
+                    }
+                }
+
+                if (duplicateTransferAmount > 0.0) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("⇄ Já transferido da conta principal", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("- " + Formatters.formatMoney(duplicateTransferAmount, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
                     }
                 }
 

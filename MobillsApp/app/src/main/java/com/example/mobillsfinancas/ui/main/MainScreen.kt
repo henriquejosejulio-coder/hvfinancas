@@ -1382,6 +1382,27 @@ fun DashboardTab(
             val otherAccountsBalance = otherAccounts.sumOf { it.balance }
             val otherAccountsLabel = if (otherAccounts.size == 1) otherAccounts.first().name else if (otherAccounts.size > 1) "${otherAccounts.size} contas" else ""
 
+            val otherAccountIds = otherAccounts.map { it.id }.toSet()
+            val otherAccountNames = otherAccounts.map { it.name.trim().lowercase() }.toSet()
+            val primaryAccountId = primaryAccount?.id
+            val primaryAccountName = primaryAccount?.name?.trim()?.lowercase() ?: ""
+
+            val transfersToOtherAccounts = (currentMonthData?.items ?: emptyList()).filter { item ->
+                item.type == TransactionType.TRANSFER &&
+                item.status == PaymentStatus.PAID &&
+                !item.includeInBudget
+            }.filter { item ->
+                val (fromAcc, toAcc) = FinanceRepository.resolveTransferAccounts(item, accounts)
+                val isFromPrimary = fromAcc?.id == primaryAccountId ||
+                        (primaryAccountName.isNotBlank() && (
+                            item.accountOrCardName.trim().equals(primaryAccountName, ignoreCase = true) ||
+                            item.description.lowercase().contains(primaryAccountName)
+                        ))
+                val isToOther = (toAcc != null && otherAccountIds.contains(toAcc.id)) ||
+                        otherAccountNames.any { name -> item.description.lowercase().contains(name) }
+                isFromPrimary && isToOther
+            }.sumOf { it.amount }
+
             OverviewCard(
                 totalIncome = totalInc,
                 totalExpense = totalExp,
@@ -1393,6 +1414,7 @@ fun DashboardTab(
                 hideValues = hideValues,
                 otherAccountsBalance = otherAccountsBalance,
                 otherAccountsLabel = otherAccountsLabel,
+                transfersToOtherAccounts = transfersToOtherAccounts,
                 onAdjustBalance = { onAdjustBalance(0) }
             )
         }

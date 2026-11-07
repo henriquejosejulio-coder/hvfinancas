@@ -36,6 +36,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         hideValues = !hideValues
     }
 
+    fun resolveTransferAccounts(item: TransactionItem): Pair<AccountItem?, AccountItem?> {
+        return repository.resolveTransferAccounts(item)
+    }
+
     fun selectMonth(month: String) {
         repository.selectMonth(month)
     }

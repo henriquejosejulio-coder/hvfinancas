@@ -27,6 +27,51 @@ class FinanceRepository(private val context: Context) {
                 instance ?: FinanceRepository(context.applicationContext).also { instance = it }
             }
         }
+
+        fun extractNoteParam(note: String, key: String): String? {
+            val parts = note.split("|")
+            for (p in parts) {
+                val kv = p.split(":")
+                if (kv.size == 2 && kv[0].trim() == key) {
+                    return kv[1].trim()
+                }
+            }
+            return null
+        }
+
+        fun resolveTransferAccounts(item: TransactionItem, accounts: List<AccountItem>): Pair<AccountItem?, AccountItem?> {
+            val fromId = extractNoteParam(item.note, "fromAccountId")
+            val toId = extractNoteParam(item.note, "toAccountId")
+            var fromAcc = accounts.find { it.id == fromId }
+            var toAcc = accounts.find { it.id == toId }
+
+            if (fromAcc == null || toAcc == null) {
+                val arrow = if (item.description.contains("➔")) "➔" else if (item.description.contains("->")) "->" else null
+                if (arrow != null) {
+                    val parts = item.description.split(arrow)
+                    if (parts.size >= 2) {
+                        val rawFrom = parts[0]
+                            .replace("Agendado:", "")
+                            .replace("Transferência:", "")
+                            .replace("Transferencia:", "")
+                            .trim()
+                        val rawTo = parts[1].trim()
+                        if (fromAcc == null && rawFrom.isNotBlank()) {
+                            fromAcc = accounts.find { it.name.trim().equals(rawFrom, ignoreCase = true) }
+                        }
+                        if (toAcc == null && rawTo.isNotBlank()) {
+                            toAcc = accounts.find { it.name.trim().equals(rawTo, ignoreCase = true) }
+                        }
+                    }
+                }
+            }
+
+            if (fromAcc == null && item.accountOrCardName.isNotBlank()) {
+                fromAcc = accounts.find { it.name.trim().equals(item.accountOrCardName.trim(), ignoreCase = true) }
+            }
+
+            return Pair(fromAcc, toAcc)
+        }
     }
 
     private val dataFile = File(context.filesDir, "hvfinancas_v6.json")
@@ -743,51 +788,8 @@ class FinanceRepository(private val context: Context) {
         return Pair(newCard, true)
     }
 
-    private fun extractNoteParam(note: String, key: String): String? {
-        val parts = note.split("|")
-        for (p in parts) {
-            val kv = p.split(":")
-            if (kv.size == 2 && kv[0].trim() == key) {
-                return kv[1].trim()
-            }
-        }
-        return null
-    }
-
     fun resolveTransferAccounts(item: TransactionItem): Pair<AccountItem?, AccountItem?> {
-        val fromId = extractNoteParam(item.note, "fromAccountId")
-        val toId = extractNoteParam(item.note, "toAccountId")
-        var fromAcc = _accounts.value.find { it.id == fromId }
-        var toAcc = _accounts.value.find { it.id == toId }
-
-        // Fallback: tenta resolver pelos nomes das contas na descrição (ex: "Agendado: Conta Inter ➔ Cofrinho MP 2")
-        if (fromAcc == null || toAcc == null) {
-            val arrow = if (item.description.contains("➔")) "➔" else if (item.description.contains("->")) "->" else null
-            if (arrow != null) {
-                val parts = item.description.split(arrow)
-                if (parts.size >= 2) {
-                    val rawFrom = parts[0]
-                        .replace("Agendado:", "")
-                        .replace("Transferência:", "")
-                        .replace("Transferencia:", "")
-                        .trim()
-                    val rawTo = parts[1].trim()
-                    if (fromAcc == null && rawFrom.isNotBlank()) {
-                        fromAcc = findMatchingAccount(rawFrom, fallbackToDefault = false)
-                    }
-                    if (toAcc == null && rawTo.isNotBlank()) {
-                        toAcc = findMatchingAccount(rawTo, fallbackToDefault = false)
-                    }
-                }
-            }
-        }
-
-        // Fallback secundário: tenta pelo accountOrCardName como conta de origem
-        if (fromAcc == null && item.accountOrCardName.isNotBlank()) {
-            fromAcc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
-        }
-
-        return Pair(fromAcc, toAcc)
+        return resolveTransferAccounts(item, _accounts.value)
     }
 
     fun updateTransfer(

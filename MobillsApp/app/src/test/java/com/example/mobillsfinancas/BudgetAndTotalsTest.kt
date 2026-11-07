@@ -55,6 +55,41 @@ class BudgetAndTotalsTest {
     }
 
     @Test
+    fun testTransferBetweenAccountsDoesNotDoubleCountInSobrouParaGastar() {
+        val totalIncome = 5102.22
+        val totalExpense = 4895.63
+        val salarySurplus = totalIncome - totalExpense // 206.59
+
+        // Cenário 1: Antes de transferir (Mercado Pago com saldo inicial R$ 173,92)
+        var otherAccountsBalance = 173.92
+        var transfersToOther = 0.0
+        var duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
+        var netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
+        var freeToSpend = (totalIncome + netOther) - totalExpense
+        assertEquals(380.51, freeToSpend, 0.001)
+
+        // Cenário 2: Usuário transfere R$ 206,59 do Inter para o Mercado Pago (para fechar os 380 certinho)
+        // Saldo do Mercado Pago sobe para R$ 380,51
+        otherAccountsBalance = 173.92 + 206.59 // 380.51
+        transfersToOther = 206.59
+        duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
+        assertEquals(206.59, duplicateTransfer, 0.001)
+        netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
+        assertEquals(173.92, netOther, 0.001)
+        freeToSpend = (totalIncome + netOther) - totalExpense
+        // DEVE CONTINUAR EXATAMENTE R$ 380,51 (e NUNCA R$ 587,10)
+        assertEquals(380.51, freeToSpend, 0.001)
+
+        // Cenário 3: Usuário transfere parcialmente R$ 100,00
+        otherAccountsBalance = 173.92 + 100.0 // 273.92
+        transfersToOther = 100.0
+        duplicateTransfer = if (salarySurplus > 0) minOf(transfersToOther, salarySurplus) else 0.0
+        netOther = (otherAccountsBalance - duplicateTransfer).coerceAtLeast(0.0)
+        freeToSpend = (totalIncome + netOther) - totalExpense
+        assertEquals(380.51, freeToSpend, 0.001)
+    }
+
+    @Test
     fun testBankAvailableBalanceCalculation() {
         // Conta Inter: R$ 4.794,22
         val saldoInter = 4794.22
