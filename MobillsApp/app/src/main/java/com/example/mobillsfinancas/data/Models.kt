@@ -192,3 +192,28 @@ fun isTransactionForCard(
     return false
 }
 
+fun isInvoicePayment(item: TransactionItem): Boolean {
+    val desc = item.description.trim().lowercase()
+    val isCategoryCard = item.category.equals("Cartão de Crédito", ignoreCase = true)
+    return desc.startsWith("pagamento de fatura") ||
+           desc.contains("fatura paga") ||
+           (isCategoryCard && desc.contains("pagamento")) ||
+           (isCategoryCard && desc.contains("fatura"))
+}
+
+fun isInvoicePaidForCard(
+    card: CreditCardItem,
+    allMonthItems: List<TransactionItem>,
+    cardPurchases: List<TransactionItem>
+): Boolean {
+    val cardNameLower = card.name.trim().lowercase()
+    val hasPaymentReceipt = allMonthItems.any { item ->
+        item.type == TransactionType.EXPENSE &&
+        item.status == PaymentStatus.PAID &&
+        isInvoicePayment(item) &&
+        (item.description.lowercase().contains(cardNameLower) || item.accountOrCardName.lowercase().contains(cardNameLower))
+    }
+    val allPurchasesPaid = cardPurchases.isNotEmpty() && cardPurchases.all { it.status == PaymentStatus.PAID }
+    return (hasPaymentReceipt || allPurchasesPaid) && cardPurchases.isNotEmpty()
+}
+

@@ -263,4 +263,69 @@ class BudgetAndTotalsTest {
         assertEquals(370.51, freeToSpend, 0.001)
         assertNotEquals(3014.22, freeToSpend, 0.001)
     }
+
+    @Test
+    fun testInvoicePaymentDoesNotDeductFromSobrouParaGastarComigo() {
+        val baseIncome = 5132.22
+        // Despesas do mês já incluindo as compras individuais do cartão (R$ 507,51):
+        val cartaoCompras = TransactionItem(
+            id = "c1", description = "Chuveiro e compras no crédito", amount = 507.51,
+            type = TransactionType.EXPENSE, paymentType = PaymentType.CREDIT_CARD,
+            accountOrCardName = "Cartão Inter", monthYear = "NOVEMBRO 2026", includeInBudget = true
+        )
+        val contasFixas = TransactionItem(
+            id = "c2", description = "Contas Fixas", amount = 2371.22,
+            type = TransactionType.EXPENSE, paymentType = PaymentType.DEBIT_CARD,
+            accountOrCardName = "Conta Inter", monthYear = "NOVEMBRO 2026", includeInBudget = true
+        )
+        val metaCofrinho = TransactionItem(
+            id = "c3", description = "Reserva Cofrinho", amount = 2000.0,
+            type = TransactionType.TRANSFER, monthYear = "NOVEMBRO 2026", includeInBudget = true
+        )
+
+        val itemsBeforePayment = listOf(cartaoCompras, contasFixas, metaCofrinho)
+        val totalExpBefore = itemsBeforePayment.filter {
+            (it.type == TransactionType.EXPENSE && it.includeInBudget && !com.example.mobillsfinancas.data.isInvoicePayment(it)) ||
+            (it.type == TransactionType.TRANSFER && it.includeInBudget)
+        }.sumOf { it.amount }
+        assertEquals(4878.73, totalExpBefore, 0.001)
+
+        val otherAccountsBalance = 370.51
+        val transfersToOther = 253.49
+        val surplusBefore = baseIncome - totalExpBefore // 253.49
+        val dupTransferBefore = if (surplusBefore > 0) minOf(transfersToOther, surplusBefore) else 0.0
+        val netOtherBefore = (otherAccountsBalance - dupTransferBefore).coerceAtLeast(0.0)
+        val freeToSpendBefore = (baseIncome + netOtherBefore) - totalExpBefore
+        assertEquals(370.51, freeToSpendBefore, 0.001)
+
+        // Usuário paga a fatura de R$ 507,51!
+        val paymentReceipt = TransactionItem(
+            id = "pay_inv",
+            description = "Pagamento de Fatura - Cartão Inter",
+            amount = 507.51,
+            type = TransactionType.EXPENSE,
+            paymentType = PaymentType.DEBIT_CARD,
+            accountOrCardName = "Conta Inter",
+            monthYear = "NOVEMBRO 2026",
+            status = PaymentStatus.PAID,
+            includeInBudget = false // Pagamento de fatura não entra no orçamento!
+        )
+
+        val itemsAfterPayment = listOf(paymentReceipt) + itemsBeforePayment
+
+        // Total despesas do mês NÃO DEVE mudar (não pode ir para 5.386,24)
+        val totalExpAfter = itemsAfterPayment.filter {
+            (it.type == TransactionType.EXPENSE && it.includeInBudget && !com.example.mobillsfinancas.data.isInvoicePayment(it)) ||
+            (it.type == TransactionType.TRANSFER && it.includeInBudget)
+        }.sumOf { it.amount }
+        assertEquals(4878.73, totalExpAfter, 0.001)
+
+        // Sobrou para Gastar Comigo DEVE continuar intacto em R$ 370,51 (e NUNCA cair para R$ 192,53!)
+        val surplusAfter = baseIncome - totalExpAfter
+        val dupTransferAfter = if (surplusAfter > 0) minOf(transfersToOther, surplusAfter) else 0.0
+        val netOtherAfter = (otherAccountsBalance - dupTransferAfter).coerceAtLeast(0.0)
+        val freeToSpendAfter = (baseIncome + netOtherAfter) - totalExpAfter
+        assertEquals(370.51, freeToSpendAfter, 0.001)
+        assertNotEquals(192.53, freeToSpendAfter, 0.001)
+    }
 }

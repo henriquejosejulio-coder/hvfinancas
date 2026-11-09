@@ -6,7 +6,10 @@ import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.PaymentType
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
+import com.example.mobillsfinancas.data.isInvoicePaidForCard
+import com.example.mobillsfinancas.data.isInvoicePayment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,6 +60,10 @@ class InvoicePaymentTest {
         val invoiceTotal = cardItems.sumOf { it.amount }
         assertEquals(120.46, invoiceTotal, 0.001)
 
+        // Antes do pagamento, fatura não está paga e consome o limite
+        assertFalse(isInvoicePaidForCard(card, cardItems, cardItems))
+        assertEquals(5000.0 - 120.46, card.limit - invoiceTotal, 0.001)
+
         // Executa pagamento de fatura:
         // 1. Debita da conta corrente
         checkingAccount = checkingAccount.copy(balance = checkingAccount.balance - invoiceTotal)
@@ -66,7 +73,7 @@ class InvoicePaymentTest {
         val updatedCardItems = cardItems.map { it.copy(status = PaymentStatus.PAID) }
         assertTrue(updatedCardItems.all { it.status == PaymentStatus.PAID })
 
-        // 3. Registra comprovante do pagamento de fatura
+        // 3. Registra comprovante do pagamento de fatura FORA DO TETO (includeInBudget = false)
         val paymentReceipt = TransactionItem(
             id = "tx_pay_invoice",
             description = "Pagamento de Fatura - ${card.name}",
@@ -75,11 +82,33 @@ class InvoicePaymentTest {
             paymentType = PaymentType.DEBIT_CARD,
             accountOrCardName = checkingAccount.name,
             status = PaymentStatus.PAID,
-            monthYear = "NOVEMBRO 2026"
+            monthYear = "NOVEMBRO 2026",
+            includeInBudget = false // Não duplica despesas
         )
 
         assertEquals("Pagamento de Fatura - Cartão Inter", paymentReceipt.description)
         assertEquals(120.46, paymentReceipt.amount, 0.001)
         assertEquals(PaymentStatus.PAID, paymentReceipt.status)
+        assertFalse(paymentReceipt.includeInBudget)
+        assertTrue(isInvoicePayment(paymentReceipt))
+
+        // 4. Verifica status de fatura paga na tela de cartões
+        val allMonthItems = listOf(paymentReceipt) + updatedCardItems
+        val isPaid = isInvoicePaidForCard(card, allMonthItems, updatedCardItems)
+        assertTrue(isPaid)
+
+        // 5. Restauração do limite disponível após pagamento da fatura
+        val pendingPurchases = updatedCardItems.filter { it.status != PaymentStatus.PAID }.sumOf { it.amount }
+        val consumedLimit = if (isPaid) pendingPurchases else invoiceTotal
+        val availableLimit = (card.limit - consumedLimit).coerceAtLeast(0.0)
+        assertEquals(5000.0, availableLimit, 0.001) // Limite 100% restaurado!
+
+        // 6. TOTAL DESPESAS DO MÊS: O pagamento de fatura NÃO duplica as despesas no teto!
+        val totalMonthlyExpense = allMonthItems.filter {
+            (it.type == TransactionType.EXPENSE && it.includeInBudget && !isInvoicePayment(it)) ||
+            (it.type == TransactionType.TRANSFER && it.includeInBudget)
+        }.sumOf { it.amount }
+        // Deve ser exatamente R$ 120,46 (apenas as compras), NUNCA R$ 240,92!
+        assertEquals(120.46, totalMonthlyExpense, 0.001)
     }
 }

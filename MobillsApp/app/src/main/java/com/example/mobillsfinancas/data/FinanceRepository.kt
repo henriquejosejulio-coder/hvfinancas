@@ -1062,7 +1062,7 @@ class FinanceRepository(private val context: Context) {
             data = MonthData(
                 monthYear = monthYear,
                 items = recurringItems,
-                totalExpense = recurringItems.filter { it.type == TransactionType.EXPENSE || (it.type == TransactionType.TRANSFER && it.includeInBudget) }.sumOf { it.amount },
+                totalExpense = recurringItems.filter { (it.type == TransactionType.EXPENSE && it.includeInBudget && !isInvoicePayment(it)) || (it.type == TransactionType.TRANSFER && it.includeInBudget) }.sumOf { it.amount },
                 totalIncome = inheritedBaseIncome,
                 remainingBalance = inheritedBaseIncome,
                 baseIncome = inheritedBaseIncome,
@@ -1621,6 +1621,20 @@ class FinanceRepository(private val context: Context) {
         val targetMonth = monthYear ?: _selectedMonth.value
 
         val itemToDelete = _monthDataMap[targetMonth]?.items?.find { it.id == transactionId }
+        if (itemToDelete != null && isInvoicePayment(itemToDelete)) {
+            val card = _cards.value.find { itemToDelete.description.contains(it.name, ignoreCase = true) }
+            if (card != null) {
+                val data = _monthDataMap[targetMonth]
+                if (data != null) {
+                    val reverted = data.items.map { itm ->
+                        if (isTransactionForCard(itm, card, _accounts.value) && itm.status == PaymentStatus.PAID) {
+                            itm.copy(status = PaymentStatus.PENDING)
+                        } else itm
+                    }
+                    _monthDataMap[targetMonth] = data.copy(items = reverted, lastModified = System.currentTimeMillis())
+                }
+            }
+        }
         if (itemToDelete != null && itemToDelete.status == PaymentStatus.PAID) {
             if (itemToDelete.type == TransactionType.TRANSFER) {
                 val (fromAcc, toAcc) = resolveTransferAccounts(itemToDelete)
@@ -1764,6 +1778,7 @@ class FinanceRepository(private val context: Context) {
                 paymentType = PaymentType.DEBIT_CARD,
                 monthYear = monthYear,
                 status = PaymentStatus.PAID,
+                includeInBudget = false, // NÃO DUPLICA NO TETO/ORÇAMENTO POIS AS COMPRAS JÁ FORAM CONTABILIZADAS
                 note = "Pagamento da fatura de $monthYear"
             )
             updatedItems.add(0, paymentItem)
@@ -1905,9 +1920,18 @@ class FinanceRepository(private val context: Context) {
 
             var totalExp = 0.0
             var extraInc = 0.0
-            for (item in monthData.items) {
+            val sanitizedItems = monthData.items.map { item ->
+                if (isInvoicePayment(item) && item.includeInBudget) {
+                    item.copy(includeInBudget = false)
+                } else {
+                    item
+                }
+            }
+            for (item in sanitizedItems) {
                 if (item.type == TransactionType.EXPENSE) {
-                    totalExp += item.amount
+                    if (item.includeInBudget && !isInvoicePayment(item)) {
+                        totalExp += item.amount
+                    }
                 } else if (item.type == TransactionType.INCOME) {
                     if (!item.isSalaryReplacement) {
                         extraInc += item.amount
@@ -1934,7 +1958,7 @@ class FinanceRepository(private val context: Context) {
                 previousMonthBalance = prevBal,
                 currentMonthIncome = currentInc,
                 baseIncome = effectiveBaseInc,
-                items = monthData.items.toList(),
+                items = sanitizedItems,
                 lastModified = System.currentTimeMillis()
             )
             _monthDataMap[monthKey] = updated

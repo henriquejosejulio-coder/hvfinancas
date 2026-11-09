@@ -2166,7 +2166,13 @@ fun CardsTab(
         items(cards, key = { "${it.id}_${it.name}_${it.colorHex}_${it.limit}_${it.cardType}_$currentMonth" }) { card ->
             val cardItems = items.filter { isTransactionForCard(it, card, accounts) }
             val invoice = cardItems.sumOf { it.amount }
-            val availableLimit = (card.limit - invoice).coerceAtLeast(0.0)
+            val isInvoicePaid = isInvoicePaidForCard(card, items, cardItems)
+            val pendingCardItems = cardItems.filter { it.status != PaymentStatus.PAID }
+            val pendingInvoice = pendingCardItems.sumOf { it.amount }
+
+            // Se a fatura já está paga, o limite consumido passa a ser apenas de compras pendentes (se houver novas)
+            val consumedLimit = if (isInvoicePaid) pendingInvoice else invoice
+            val availableLimit = (card.limit - consumedLimit).coerceAtLeast(0.0)
 
             Card(
                 modifier = Modifier
@@ -2272,16 +2278,33 @@ fun CardsTab(
                         verticalAlignment = Alignment.Top
                     ) {
                         Column {
-                            Text(
-                                text = if (card.cardType.allowsCredit) "Fatura de $currentMonth" else "Gastos de $currentMonth no Débito",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (card.cardType.allowsCredit) "Fatura de $currentMonth" else "Gastos de $currentMonth no Débito",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (card.cardType.allowsCredit && isInvoicePaid) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = IncomeGreen.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = "✓ PAGA",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = IncomeGreen
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 text = Formatters.formatMoney(invoice, hideValues),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = if (invoice > 0) Color(card.colorHex) else MaterialTheme.colorScheme.onSurface
+                                color = if (isInvoicePaid) IncomeGreen else if (invoice > 0) Color(card.colorHex) else MaterialTheme.colorScheme.onSurface
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
@@ -2318,8 +2341,8 @@ fun CardsTab(
 
                     // Barra de Consumo do Limite (quando cartão de crédito com limite > 0)
                     if (card.cardType.allowsCredit && card.limit > 0) {
-                        val limitUsage = (invoice / card.limit).toFloat().coerceIn(0f, 1f)
-                        val usagePercent = ((invoice / card.limit) * 100).toInt()
+                        val limitUsage = (consumedLimit / card.limit).toFloat().coerceIn(0f, 1f)
+                        val usagePercent = ((consumedLimit / card.limit) * 100).toInt()
                         Spacer(modifier = Modifier.height(10.dp))
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -2361,12 +2384,36 @@ fun CardsTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (card.cardType.allowsCredit && invoice > 0) {
-                            Button(
-                                onClick = { onPayInvoice(card) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("💳 Pagar Fatura", color = Color.White, fontWeight = FontWeight.Bold)
+                            if (isInvoicePaid) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = IncomeGreen.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, IncomeGreen.copy(alpha = 0.4f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "✓ Fatura Paga",
+                                            color = IncomeGreen,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                Button(
+                                    onClick = { onPayInvoice(card) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("💳 Pagar Fatura", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                         OutlinedButton(

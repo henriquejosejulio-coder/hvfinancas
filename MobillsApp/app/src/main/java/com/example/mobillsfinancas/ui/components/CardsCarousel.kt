@@ -103,11 +103,14 @@ fun CardsCarousel(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(cards, key = { "${it.id}_${it.name}_${it.colorHex}_${it.limit}_${it.cardType}_$currentMonth" }) { card ->
-                val invoice = items.filter { isTransactionForCard(it, card, accounts) }.sumOf { it.amount }
+                val cardItems = items.filter { isTransactionForCard(it, card, accounts) }
+                val invoice = cardItems.sumOf { it.amount }
+                val isInvoicePaid = isInvoicePaidForCard(card, items, cardItems)
 
                 CreditCardView(
                     card = card,
                     invoiceAmount = invoice,
+                    isInvoicePaid = isInvoicePaid,
                     currentMonth = currentMonth,
                     accounts = accounts,
                     hideValues = hideValues,
@@ -322,6 +325,7 @@ fun CardsCarousel(
 fun CreditCardView(
     card: CreditCardItem,
     invoiceAmount: Double,
+    isInvoicePaid: Boolean = false,
     currentMonth: String = "",
     accounts: List<AccountItem> = emptyList(),
     hideValues: Boolean,
@@ -417,18 +421,35 @@ fun CreditCardView(
 
                 // Fatura Atual ou Gastos no Débito
                 Column {
-                    Text(
-                        text = if (!card.cardType.allowsCredit) {
-                            if (currentMonth.isNotEmpty()) "Gastos no Débito • $currentMonth" else "Gastos no Débito"
-                        } else {
-                            if (currentMonth.isNotEmpty()) "Fatura • $currentMonth" else "Fatura Aberta"
-                        },
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 12.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (!card.cardType.allowsCredit) {
+                                if (currentMonth.isNotEmpty()) "Gastos no Débito • $currentMonth" else "Gastos no Débito"
+                            } else {
+                                if (currentMonth.isNotEmpty()) "Fatura • $currentMonth" else "Fatura Aberta"
+                            },
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp
+                        )
+                        if (card.cardType.allowsCredit && isInvoicePaid) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color.Black.copy(alpha = 0.35f)
+                            ) {
+                                Text(
+                                    text = "✓ PAGA",
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    color = Color(0xFF4ADE80),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = Formatters.formatMoney(invoiceAmount, hideValues),
-                        color = Color.White,
+                        color = if (isInvoicePaid && card.cardType.allowsCredit) Color(0xFF4ADE80) else Color.White,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 20.sp
                     )
@@ -441,7 +462,7 @@ fun CreditCardView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            val availableLimit = (card.limit - invoiceAmount).coerceAtLeast(0.0)
+                            val availableLimit = if (isInvoicePaid) card.limit else (card.limit - invoiceAmount).coerceAtLeast(0.0)
                             Text(
                                 text = "Limite: ${Formatters.formatMoney(card.limit, hideValues)}",
                                 color = Color.White.copy(alpha = 0.85f),
