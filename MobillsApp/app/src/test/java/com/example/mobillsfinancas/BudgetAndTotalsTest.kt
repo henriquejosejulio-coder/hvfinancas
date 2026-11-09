@@ -328,4 +328,61 @@ class BudgetAndTotalsTest {
         assertEquals(370.51, freeToSpendAfter, 0.001)
         assertNotEquals(192.53, freeToSpendAfter, 0.001)
     }
+
+    @Test
+    fun testOutOfBudgetExpenseDeductsFromFreeToSpend() {
+        val baseIncome = 5132.22
+        val totalExpense = 3811.18
+        val unspentBudgets = 1020.0
+        val totalCommitted = totalExpense + unspentBudgets // 4831.18
+
+        val salarySurplus = baseIncome - totalCommitted // 301.04
+        val transfersToOtherAccounts = 293.06
+        val duplicateTransferAmount = if (salarySurplus > 0.0) minOf(transfersToOtherAccounts, salarySurplus) else 0.0 // 293.06
+
+        val otherAccountsBalance = 400.59 // Saldo real em conta (Mercado Pago 2)
+        val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount) // 107.53
+        val effectiveIncome = baseIncome + netOtherAccountsBalance // 5239.75
+
+        // Gasto extra fora do teto (Uber R$ 7,98 pago com PIX no Mercado Pago)
+        val uberOutOfBudget = TransactionItem(
+            id = "tx_uber",
+            description = "Uber",
+            amount = 7.98,
+            type = TransactionType.EXPENSE,
+            paymentType = PaymentType.PIX,
+            accountOrCardName = "Mercado Pago 2",
+            status = PaymentStatus.PAID,
+            monthYear = "NOVEMBRO 2026",
+            includeInBudget = false
+        )
+
+        val invoicePayment = TransactionItem(
+            id = "tx_pay_inv",
+            description = "Pagamento de Fatura - Cartão Inter",
+            amount = 507.51,
+            type = TransactionType.EXPENSE,
+            paymentType = PaymentType.DEBIT_CARD,
+            accountOrCardName = "Conta Inter",
+            status = PaymentStatus.PAID,
+            monthYear = "NOVEMBRO 2026",
+            includeInBudget = false
+        )
+
+        val items = listOf(uberOutOfBudget, invoicePayment)
+
+        val extraExpensesOutOfBudget = items.filter { item ->
+            item.type == TransactionType.EXPENSE &&
+            !item.includeInBudget &&
+            !com.example.mobillsfinancas.data.isInvoicePayment(item)
+        }.sumOf { it.amount }
+
+        assertEquals(7.98, extraExpensesOutOfBudget, 0.001)
+
+        val freeToSpend = (effectiveIncome - totalCommitted) - extraExpensesOutOfBudget
+
+        // DEVE resultar exatamente em R$ 400,59, batendo 100% com o saldo do Mercado Pago 2!
+        assertEquals(400.59, freeToSpend, 0.001)
+        assertNotEquals(408.57, freeToSpend, 0.001)
+    }
 }

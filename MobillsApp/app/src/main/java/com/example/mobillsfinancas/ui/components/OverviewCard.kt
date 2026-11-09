@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
+import com.example.mobillsfinancas.data.isInvoicePayment
 import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
@@ -63,8 +64,15 @@ fun OverviewCard(
     // Renda total considerada: receitas do mês + saldo externo disponível em outras contas correntes
     val effectiveIncome = baseIncome + netOtherAccountsBalance
 
-    // Disponível Real para Gastar Comigo = Receita Efetiva - Total Comprometido
-    val freeToSpend = effectiveIncome - totalCommitted
+    // Despesas fora do teto (exceto pagamento de fatura, para não duplicar dívida de cartão já liquidada)
+    val extraExpensesOutOfBudget = items.filter { item ->
+        item.type == TransactionType.EXPENSE &&
+        !item.includeInBudget &&
+        !isInvoicePayment(item)
+    }.sumOf { it.amount }
+
+    // Disponível Real para Gastar Comigo = Receita Efetiva - Total Comprometido - Despesas Fora do Teto
+    val freeToSpend = (effectiveIncome - totalCommitted) - extraExpensesOutOfBudget
 
     Card(
         modifier = Modifier
@@ -164,8 +172,9 @@ fun OverviewCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Barra proporcional de Despesas vs Receitas
-            val totalBase = maxOf(effectiveIncome, totalCommitted, 1.0)
-            val expenseRatio = (totalCommitted / totalBase).toFloat().coerceIn(0f, 1f)
+            val totalSpentAndCommitted = totalCommitted + extraExpensesOutOfBudget
+            val totalBase = maxOf(effectiveIncome, totalSpentAndCommitted, 1.0)
+            val expenseRatio = (totalSpentAndCommitted / totalBase).toFloat().coerceIn(0f, 1f)
 
             Box(
                 modifier = Modifier
@@ -314,12 +323,20 @@ fun OverviewCard(
                     }
                 }
 
+                if (extraExpensesOutOfBudget > 0.0) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("🏷️ Gastos fora do teto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("- " + Formatters.formatMoney(extraExpensesOutOfBudget, hideValues), fontSize = 11.sp, color = ExpenseRed)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("📋 Total de Despesas", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
-                    Text("- " + Formatters.formatMoney(totalCommitted, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
+                    Text("📋 Total de Saídas e Reservas", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
+                    Text("- " + Formatters.formatMoney(totalSpentAndCommitted, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
