@@ -20,6 +20,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     val tags = repository.tags
     val recentCapturedTransactions = repository.recentCapturedTransactions
     val recentCapturedTransaction = repository.recentCapturedTransaction
+    val auditLogs = repository.auditLogs
 
     var hideValues by mutableStateOf(false)
         private set
@@ -236,5 +237,9 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
     fun scanAndRestoreBestData(): Pair<Boolean, Int> {
         return repository.restoreFromBestAvailableSource()
+    }
+
+    fun clearAuditLogs() {
+        repository.clearAuditLogs()
     }
 }

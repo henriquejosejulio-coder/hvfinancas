@@ -431,9 +431,11 @@ fun EditAccountDialog(
                             val parsedCdi = cdiRateText.toDoubleOrNull() ?: 0.0
                             val parsedBal = Formatters.parseCurrency(balanceText)
                             if (parsedCdi > 0 && parsedBal > 0) {
+                                val context = androidx.compose.ui.platform.LocalContext.current
+                                val cdiData = remember { com.example.mobillsfinancas.services.BcbCdiService.getCachedCdiRate(context) }
                                 val tempAcc = AccountItem(id = "", name = "", balance = parsedBal, cdiRatePercentage = parsedCdi)
-                                val estMonthly = tempAcc.calculateMonthlyYield()
-                                val estDaily = tempAcc.calculateDailyYield()
+                                val estMonthly = tempAcc.calculateMonthlyYield(dailyCdiRatePercent = cdiData.dailyRatePercent)
+                                val estDaily = tempAcc.calculateDailyYield(dailyCdiRatePercent = cdiData.dailyRatePercent)
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
@@ -443,7 +445,7 @@ fun EditAccountDialog(
                                 ) {
                                     Column(modifier = Modifier.padding(10.dp)) {
                                         Text(
-                                            text = "💰 Estimativa diária líquida (CDI atual ~14,15% a.a.):",
+                                            text = "💰 Estimativa líquida oficial (CDI BCB ~${String.format(java.util.Locale.US, "%.2f", cdiData.annualRatePercent)}% a.a. - 22,5% IR):",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MobillsGreenPrimary

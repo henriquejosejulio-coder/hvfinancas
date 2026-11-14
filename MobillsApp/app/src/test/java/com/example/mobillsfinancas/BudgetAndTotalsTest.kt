@@ -336,14 +336,6 @@ class BudgetAndTotalsTest {
         val unspentBudgets = 1020.0
         val totalCommitted = totalExpense + unspentBudgets // 4831.18
 
-        val salarySurplus = baseIncome - totalCommitted // 301.04
-        val transfersToOtherAccounts = 293.06
-        val duplicateTransferAmount = if (salarySurplus > 0.0) minOf(transfersToOtherAccounts, salarySurplus) else 0.0 // 293.06
-
-        val otherAccountsBalance = 400.59 // Saldo real em conta (Mercado Pago 2)
-        val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount) // 107.53
-        val effectiveIncome = baseIncome + netOtherAccountsBalance // 5239.75
-
         // Gasto extra fora do teto (Uber R$ 7,98 pago com PIX no Mercado Pago)
         val uberOutOfBudget = TransactionItem(
             id = "tx_uber",
@@ -379,10 +371,42 @@ class BudgetAndTotalsTest {
 
         assertEquals(7.98, extraExpensesOutOfBudget, 0.001)
 
-        val freeToSpend = (effectiveIncome - totalCommitted) - extraExpensesOutOfBudget
+        val totalSpentAndCommitted = totalCommitted + extraExpensesOutOfBudget // 4839.16
+        val salarySurplus = baseIncome - totalSpentAndCommitted // 293.06
+        val transfersToOtherAccounts = 293.06
+        val duplicateTransferAmount = if (salarySurplus > 0.0) minOf(transfersToOtherAccounts, salarySurplus) else 0.0 // 293.06
+
+        val otherAccountsBalance = 400.59 // Saldo real em conta (Mercado Pago 2)
+        val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount) // 107.53
+        val effectiveIncome = baseIncome + netOtherAccountsBalance // 5239.75
+
+        val freeToSpend = effectiveIncome - totalSpentAndCommitted
 
         // DEVE resultar exatamente em R$ 400,59, batendo 100% com o saldo do Mercado Pago 2!
         assertEquals(400.59, freeToSpend, 0.001)
         assertNotEquals(408.57, freeToSpend, 0.001)
+    }
+
+    @Test
+    fun testCurrentMonthCalculationMatchesSpendingAccountBalance() {
+        val baseIncome = 5302.22
+        val totalExpense = 4226.06
+        val unspentBudgets = 967.12
+        val totalCommitted = totalExpense + unspentBudgets // 5193.18
+        val extraExpensesOutOfBudget = 7.98 // Uber
+        val transfersToOtherAccounts = 293.06
+        val otherAccountsBalance = 367.75 // Saldo atual Mercado Pago 2
+
+        val totalSpentAndCommitted = totalCommitted + extraExpensesOutOfBudget
+        val salarySurplus = baseIncome - totalSpentAndCommitted // 101.06
+        val duplicateTransferAmount = if (salarySurplus > 0.0) minOf(transfersToOtherAccounts, salarySurplus) else 0.0 // 101.06
+
+        val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount) // 266.69
+        val effectiveIncome = baseIncome + netOtherAccountsBalance // 5568.91
+
+        val freeToSpend = effectiveIncome - totalSpentAndCommitted
+
+        // DEVE bater exatamente com os R$ 367,75 da conta de gastos Mercado Pago 2
+        assertEquals(367.75, freeToSpend, 0.01)
     }
 }

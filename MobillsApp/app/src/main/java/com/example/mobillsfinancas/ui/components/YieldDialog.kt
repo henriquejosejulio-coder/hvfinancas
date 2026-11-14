@@ -32,23 +32,78 @@ fun YieldDialog(
     onToggleAutoYield: (Boolean) -> Unit,
     onApplyYields: (Map<String, Double>) -> Unit,
     onDirectBalanceUpdate: ((AccountItem, Double) -> Unit)? = null,
+    cdiData: com.example.mobillsfinancas.services.CdiRateData? = null,
+    onRefreshCdi: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val currentCdiData = cdiData ?: remember { com.example.mobillsfinancas.services.BcbCdiService.getCachedCdiRate(context) }
+
     val yieldAccounts = remember(accounts) {
         accounts.filter { it.cdiRatePercentage > 0.0 && it.balance > 0.0 }
     }
 
     // Mapa de valores a aplicar por conta (inicia com o rendimento diário calculado)
-    val yieldInputs = remember(yieldAccounts) {
+    val yieldInputs = remember(yieldAccounts, currentCdiData) {
         mutableStateMapOf<String, String>().apply {
             yieldAccounts.forEach { acc ->
-                val calculatedDaily = acc.calculateDailyYield()
+                val calculatedDaily = acc.calculateDailyYield(dailyCdiRatePercent = currentCdiData.dailyRatePercent)
                 this[acc.id] = String.format(java.util.Locale.US, "%.2f", calculatedDaily)
             }
         }
     }
 
     var autoYieldChecked by remember { mutableStateOf(isAutoYieldEnabled) }
+    var accountToAdjust by remember { mutableStateOf<AccountItem?>(null) }
+    var directBalanceInput by remember { mutableStateOf("") }
+
+    if (accountToAdjust != null) {
+        val targetAcc = accountToAdjust!!
+        AlertDialog(
+            onDismissRequest = { accountToAdjust = null },
+            title = {
+                Text("Ajustar Saldo Real: ${targetAcc.name}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Informe o saldo exato que aparece no aplicativo do seu banco para sincronizar imediatamente:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = directBalanceInput,
+                        onValueChange = { directBalanceInput = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
+                        label = { Text("Saldo Real no Banco (R$)") },
+                        placeholder = { Text(String.format(java.util.Locale.US, "%.2f", targetAcc.balance)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val parsed = directBalanceInput.replace(',', '.').toDoubleOrNull()
+                        if (parsed != null && parsed >= 0.0) {
+                            onDirectBalanceUpdate?.invoke(targetAcc, parsed)
+                        }
+                        accountToAdjust = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MobillsGreenPrimary)
+                ) {
+                    Text("Salvar Saldo")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountToAdjust = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -85,6 +140,22 @@ fun YieldDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "📊 CDI Oficial BCB: ${String.format(java.util.Locale.US, "%.4f", currentCdiData.dailyRatePercent)}% a.d. (~${String.format(java.util.Locale.US, "%.2f", currentCdiData.annualRatePercent)}% a.a.) • Líquido (-22,5% IR)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MobillsGreenPrimary
+                                )
+                                if (onRefreshCdi != null) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "🔄",
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.clickable { onRefreshCdi() }
+                                    )
+                                }
+                            }
                         }
                     }
                     IconButton(onClick = onDismiss) {
@@ -117,7 +188,7 @@ fun YieldDialog(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Aplica o rendimento diário estimado em dias úteis ao abrir o app para bater com o banco.",
+                                text = "Aplica o rendimento diário líquido oficial em dias úteis ao abrir o app para bater exatamente com o banco.",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 14.sp
@@ -204,8 +275,9 @@ fun YieldDialog(
                                                     fontWeight = FontWeight.Bold,
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
+                                                val estMonthly = acc.calculateMonthlyYield(dailyCdiRatePercent = currentCdiData.dailyRatePercent)
                                                 Text(
-                                                    text = "${if (acc.cdiRatePercentage % 1.0 == 0.0) acc.cdiRatePercentage.toInt() else acc.cdiRatePercentage}% CDI • ~${Formatters.formatMoney(acc.calculateMonthlyYield())}/mês",
+                                                    text = "${if (acc.cdiRatePercentage % 1.0 == 0.0) acc.cdiRatePercentage.toInt() else acc.cdiRatePercentage}% CDI • ~${Formatters.formatMoney(estMonthly)}/mês (Líquido)",
                                                     fontSize = 11.sp,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -224,6 +296,21 @@ fun YieldDialog(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 13.sp
                                             )
+                                            if (onDirectBalanceUpdate != null) {
+                                                Text(
+                                                    text = "✏️ Ajustar saldo",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MobillsGreenPrimary,
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .clickable {
+                                                            directBalanceInput = String.format(java.util.Locale.US, "%.2f", acc.balance)
+                                                            accountToAdjust = acc
+                                                        }
+                                                        .padding(top = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
 

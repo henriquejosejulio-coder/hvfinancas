@@ -15,6 +15,14 @@ import com.example.mobillsfinancas.utils.BankRegistry
 import com.example.mobillsfinancas.utils.SupportedBank
 import com.example.mobillsfinancas.utils.Formatters
 import com.example.mobillsfinancas.utils.BackupManager
+import com.example.mobillsfinancas.utils.TransactionDescriptionCleaner
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 
 class FinanceRepository(private val context: Context) {
 
@@ -102,6 +110,23 @@ class FinanceRepository(private val context: Context) {
     private val _recentCapturedTransactions = MutableStateFlow<List<TransactionItem>>(emptyList())
     val recentCapturedTransactions: StateFlow<List<TransactionItem>> = _recentCapturedTransactions.asStateFlow()
 
+    private val _auditLogs = MutableStateFlow<List<AuditLogEntry>>(emptyList())
+    val auditLogs: StateFlow<List<AuditLogEntry>> = _auditLogs.asStateFlow()
+
+    fun logAudit(action: String, summary: String, details: String = "") {
+        val now = System.currentTimeMillis()
+        val entry = AuditLogEntry(
+            id = UUID.randomUUID().toString(),
+            timestamp = now,
+            dateTimeStr = Formatters.formatDateTime(now),
+            action = action,
+            summary = summary,
+            details = details
+        )
+        val current = _auditLogs.value
+        _auditLogs.value = (listOf(entry) + current).take(500)
+    }
+
     val recentCapturedTransaction: StateFlow<TransactionItem?> get() = MutableStateFlow(_recentCapturedTransactions.value.firstOrNull())
 
     fun addRecentCapturedTransaction(item: TransactionItem) {
@@ -109,6 +134,11 @@ class FinanceRepository(private val context: Context) {
         list.removeAll { it.id == item.id }
         list.add(0, item) // mais recente primeiro
         _recentCapturedTransactions.value = list
+        logAudit(
+            action = "CAPTURA_AUTOMATICA",
+            summary = "Compra/Receita capturada automaticamente: ${item.description} - R$ ${Formatters.formatCurrencyPlain(item.amount)} (${item.accountOrCardName})",
+            details = "id=${item.id}, payType=${item.paymentType}, date=${item.date}"
+        )
     }
 
     fun setRecentCapturedTransaction(item: TransactionItem?) {
@@ -220,8 +250,9 @@ class FinanceRepository(private val context: Context) {
 
             try {
                 checkAndApplyAutoYield()
+                syncCdiRateFromBcbAsync()
             } catch (t: Throwable) {
-                android.util.Log.e("FinanceRepository", "Erro em checkAndApplyAutoYield", t)
+                android.util.Log.e("FinanceRepository", "Erro em checkAndApplyAutoYield ou syncCdiRateFromBcbAsync", t)
             }
 
             try {
@@ -639,6 +670,13 @@ class FinanceRepository(private val context: Context) {
         }
 
         recalculateAllMonths()
+        if (oldAcc != null && oldAcc.balance != updated.balance) {
+            logAudit(
+                action = "ACERTOU_SALDO",
+                summary = "Saldo de '${updated.name}' ajustado de R$ ${Formatters.formatCurrencyPlain(oldAcc.balance)} para R$ ${Formatters.formatCurrencyPlain(updated.balance)}",
+                details = "id=${updated.id}, diff=${updated.balance - oldAcc.balance}"
+            )
+        }
         saveToDisk()
     }
 
@@ -669,13 +707,39 @@ class FinanceRepository(private val context: Context) {
         return prefs.getString("last_yield_date", "") ?: ""
     }
 
+    fun getCdiRateData(): com.example.mobillsfinancas.services.CdiRateData {
+        return com.example.mobillsfinancas.services.BcbCdiService.getCachedCdiRate(context)
+    }
+
+    fun syncCdiRateFromBcbAsync(force: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = com.example.mobillsfinancas.services.BcbCdiService.fetchCdiRateSync(context, force)
+                if (result.isLiveFromBcb) {
+                    withContext(Dispatchers.Main) {
+                        checkAndApplyAutoYield()
+                    }
+                }
+                onComplete?.invoke(result.isLiveFromBcb)
+            } catch (t: Throwable) {
+                android.util.Log.w("FinanceRepository", "Falha ao sincronizar CDI BCB", t)
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
     fun applyDailyYields(yields: Map<String, Double>) {
         if (yields.isEmpty()) return
         val currentAccs = _accounts.value
+        val appliedDetails = mutableListOf<String>()
+        var totalApplied = 0.0
+
         _accounts.value = currentAccs.map { acc ->
             val yield = yields[acc.id] ?: 0.0
             if (yield > 0.0) {
                 val newBal = Math.round((acc.balance + yield) * 100.0) / 100.0
+                totalApplied += yield
+                appliedDetails.add("${acc.name}: +R$ ${Formatters.formatCurrencyPlain(yield)} (novo: R$ ${Formatters.formatCurrencyPlain(newBal)})")
                 acc.copy(balance = newBal)
             } else {
                 acc
@@ -684,6 +748,15 @@ class FinanceRepository(private val context: Context) {
         val cal = Calendar.getInstance()
         val todayStr = String.format("%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
         prefs.edit().putString("last_yield_date", todayStr).apply()
+        if (totalApplied > 0.0) {
+            val cdiData = getCdiRateData()
+            val cdiSummary = "CDI BCB: ${String.format(java.util.Locale.US, "%.4f", cdiData.dailyRatePercent)}% a.d. (~${String.format(java.util.Locale.US, "%.2f", cdiData.annualRatePercent)}% a.a.) | Líquido de IR (22,5%)"
+            logAudit(
+                action = "RENDIMENTO_APLICADO",
+                summary = "Rendimento diário creditado (+R$ ${Formatters.formatCurrencyPlain(totalApplied)})",
+                details = "${appliedDetails.joinToString("; ")} • [$cdiSummary]"
+            )
+        }
         saveToDisk()
     }
 
@@ -701,10 +774,11 @@ class FinanceRepository(private val context: Context) {
             return emptyMap()
         }
 
+        val cdiData = getCdiRateData()
         val yields = mutableMapOf<String, Double>()
         for (acc in _accounts.value) {
             if (acc.cdiRatePercentage > 0.0 && acc.balance > 0.0) {
-                val daily = acc.calculateDailyYield()
+                val daily = acc.calculateDailyYield(dailyCdiRatePercent = cdiData.dailyRatePercent)
                 if (daily > 0.0) {
                     yields[acc.id] = daily
                 }
@@ -938,6 +1012,11 @@ class FinanceRepository(private val context: Context) {
                 lastModified = System.currentTimeMillis()
             )
             recalculateAllMonths()
+            logAudit(
+                action = "TRANSFERENCIA",
+                summary = "Transferência realizada: R$ ${Formatters.formatCurrencyPlain(amount)} de '${fromAcc.name}' para '${toAcc.name}'",
+                details = "from=${fromAcc.id}, to=${toAcc.id}, scheduled=$isScheduled, data=$txDate"
+            )
             saveToDisk()
         }
     }
@@ -1139,6 +1218,16 @@ class FinanceRepository(private val context: Context) {
             lastModified = System.currentTimeMillis()
         )
         recalculateAllMonths()
+        val actionType = when (finalItem.type) {
+            TransactionType.INCOME -> "CRIOU_RECEITA"
+            TransactionType.EXPENSE -> "CRIOU_DESPESA"
+            TransactionType.TRANSFER -> "CRIOU_TRANSFERENCIA"
+        }
+        logAudit(
+            action = actionType,
+            summary = "Lançamento criado: '${finalItem.description}' - R$ ${Formatters.formatCurrencyPlain(finalItem.amount)} (${finalItem.accountOrCardName})",
+            details = "id=${finalItem.id}, payType=${finalItem.paymentType}, cat=${finalItem.category}, date=${finalItem.date}, month=$month, includeInBudget=${finalItem.includeInBudget}"
+        )
         saveToDisk()
     }
 
@@ -1453,6 +1542,11 @@ class FinanceRepository(private val context: Context) {
         }
 
         recalculateAllMonths()
+        logAudit(
+            action = "EDITOU_LANCAMENTO",
+            summary = "Lançamento editado: '${itemToStore.description}' - R$ ${Formatters.formatCurrencyPlain(itemToStore.amount)} (${itemToStore.accountOrCardName})",
+            details = "id=${itemToStore.id}, acc=${itemToStore.accountOrCardName}, cat=${itemToStore.category}, pay=${itemToStore.paymentType}, status=${itemToStore.status}, noTeto=${itemToStore.includeInBudget}, mes=${itemToStore.monthYear}"
+        )
         saveToDisk()
     }
 
@@ -1699,6 +1793,11 @@ class FinanceRepository(private val context: Context) {
         }
 
         recalculateAllMonths()
+        logAudit(
+            action = "EXCLUIU_LANCAMENTO",
+            summary = "Lançamento excluído: '${itemToDelete?.description ?: transactionId}' - R$ ${Formatters.formatCurrencyPlain(itemToDelete?.amount ?: 0.0)}",
+            details = "id=$transactionId, mes=$targetMonth, acc=${itemToDelete?.accountOrCardName}"
+        )
         saveToDisk()
         dismissRecentCapture(transactionId)
     }
@@ -1776,6 +1875,7 @@ class FinanceRepository(private val context: Context) {
                 categoryColorHex = 0xFFFF7A00,
                 accountOrCardName = account.name,
                 paymentType = PaymentType.DEBIT_CARD,
+                date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date()),
                 monthYear = monthYear,
                 status = PaymentStatus.PAID,
                 includeInBudget = false, // NÃO DUPLICA NO TETO/ORÇAMENTO POIS AS COMPRAS JÁ FORAM CONTABILIZADAS
@@ -1789,6 +1889,11 @@ class FinanceRepository(private val context: Context) {
             lastModified = System.currentTimeMillis()
         )
         recalculateAllMonths()
+        logAudit(
+            action = "PAGOU_FATURA",
+            summary = "Fatura paga: Cartão '$cardName' no valor de R$ ${Formatters.formatCurrencyPlain(amountPaid)} via '${account?.name ?: ""}'",
+            details = "cartao=$cardName, mes=$monthYear, valor=$amountPaid, conta=${account?.name}"
+        )
         saveToDisk()
     }
 
@@ -1921,8 +2026,17 @@ class FinanceRepository(private val context: Context) {
             var totalExp = 0.0
             var extraInc = 0.0
             val sanitizedItems = monthData.items.map { item ->
-                if (isInvoicePayment(item) && item.includeInBudget) {
-                    item.copy(includeInBudget = false)
+                val cleanedDesc = TransactionDescriptionCleaner.cleanDescription(
+                    item.description,
+                    item.category,
+                    item.accountOrCardName
+                )
+                val shouldExcludeBudget = isInvoicePayment(item) && item.includeInBudget
+                if (shouldExcludeBudget || cleanedDesc != item.description) {
+                    item.copy(
+                        description = cleanedDesc,
+                        includeInBudget = if (shouldExcludeBudget) false else item.includeInBudget
+                    )
                 } else {
                     item
                 }
@@ -2014,6 +2128,14 @@ class FinanceRepository(private val context: Context) {
         return data.items.filter {
             it.accountOrCardName.equals(cardName, ignoreCase = true)
         }
+    }
+
+    fun getMonthData(monthYear: String): MonthData? = _monthDataMap[monthYear]
+
+    fun isInvoicePaidForCard(card: CreditCardItem, month: String): Boolean {
+        val monthData = _monthDataMap[month] ?: return false
+        val cardPurchases = getPurchasesForCard(card, month)
+        return isInvoicePaidForCard(card, monthData.items, cardPurchases)
     }
 
     // --- Importador OFX ---
@@ -2140,6 +2262,7 @@ class FinanceRepository(private val context: Context) {
                 o.put("isDefault", acc.isDefault)
                 o.put("includeInOverallBalance", acc.includeInOverallBalance)
                 o.put("cdiRatePercentage", acc.cdiRatePercentage)
+                o.put("taxRatePercentage", acc.taxRatePercentage)
                 accArr.put(o)
             }
             rootObj.put("accounts", accArr)
@@ -2203,6 +2326,20 @@ class FinanceRepository(private val context: Context) {
                 monthsArr.put(mObj)
             }
             rootObj.put("months", monthsArr)
+
+            // Salva Registro de Auditoria (Audit Log) para exportação e auditoria completa
+            val auditArr = JSONArray()
+            for (entry in _auditLogs.value) {
+                val aObj = JSONObject()
+                aObj.put("id", entry.id)
+                aObj.put("timestamp", entry.timestamp)
+                aObj.put("dateTimeStr", entry.dateTimeStr)
+                aObj.put("action", entry.action)
+                aObj.put("summary", entry.summary)
+                aObj.put("details", entry.details)
+                auditArr.put(aObj)
+            }
+            rootObj.put("audit_log", auditArr)
 
             val jsonString = rootObj.toString()
             BackupManager.atomicWrite(dataFile, jsonString)
@@ -2308,7 +2445,8 @@ class FinanceRepository(private val context: Context) {
                                 bankIcon = o.optString("bankIcon", "🏦"),
                                 isDefault = o.optBoolean("isDefault", i == 0),
                                 includeInOverallBalance = o.optBoolean("includeInOverallBalance", defaultInclude),
-                                cdiRatePercentage = o.optDouble("cdiRatePercentage", defaultCdi)
+                                cdiRatePercentage = o.optDouble("cdiRatePercentage", defaultCdi),
+                                taxRatePercentage = o.optDouble("taxRatePercentage", 22.5)
                             )
                         )
                     }
@@ -2407,10 +2545,11 @@ class FinanceRepository(private val context: Context) {
                                 else -> PaymentStatus.PENDING
                             }
 
-                            val desc = iObj.optString("description", iObj.optString("descricao", "Lançamento"))
+                            val rawDesc = iObj.optString("description", iObj.optString("descricao", "Lançamento"))
                             val amt = if (iObj.has("amount")) iObj.optDouble("amount", 0.0) else iObj.optDouble("valor", 0.0)
                             val catName = iObj.optString("category", iObj.optString("categoria", "Geral"))
                             val accCardName = iObj.optString("accountOrCardName", iObj.optString("forma_pagamento", "Conta Principal"))
+                            val desc = TransactionDescriptionCleaner.cleanDescription(rawDesc, catName, accCardName)
                             val dt = iObj.optString("date", iObj.optString("vencimento", ""))
 
                             items.add(
@@ -2470,6 +2609,33 @@ class FinanceRepository(private val context: Context) {
                 }
                 selectMonth(defaultMonth)
             }
+
+            // 6. Auditoria (Audit Log)
+            try {
+                if (rootObj.has("audit_log")) {
+                    val arr = rootObj.optJSONArray("audit_log") ?: JSONArray()
+                    val list = mutableListOf<AuditLogEntry>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        list.add(
+                            AuditLogEntry(
+                                id = o.optString("id", UUID.randomUUID().toString()),
+                                timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                                dateTimeStr = o.optString("dateTimeStr", ""),
+                                action = o.optString("action", ""),
+                                summary = o.optString("summary", ""),
+                                details = o.optString("details", "")
+                            )
+                        )
+                    }
+                    if (list.isNotEmpty()) {
+                        _auditLogs.value = list
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -2498,6 +2664,11 @@ class FinanceRepository(private val context: Context) {
         }
     }
 
+    fun clearAuditLogs() {
+        _auditLogs.value = emptyList()
+        saveToDisk()
+    }
+
     fun exportBackupJson(): String {
         saveToDisk()
         return if (dataFile.exists()) dataFile.readText() else "{}"
@@ -2512,6 +2683,7 @@ class FinanceRepository(private val context: Context) {
             }
             val ok = parseFullSavedJsonSafe(trimmed)
             if (ok) {
+                logAudit("IMPORTOU_BACKUP", "Backup restaurado com sucesso", "data=${Formatters.todayDateString()}")
                 saveToDisk()
             }
             ok

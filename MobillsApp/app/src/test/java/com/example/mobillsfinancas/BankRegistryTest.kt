@@ -48,6 +48,34 @@ class BankRegistryTest {
     }
 
     @Test
+    fun testSofisaDetection() {
+        // Detecção por pacote oficial br.com.sofisadireto
+        val bankByPkg = BankRegistry.findBankByPackageOrContent("br.com.sofisadireto", "Sofisa Direto", "Pix enviado")
+        assertNotNull(bankByPkg)
+        assertEquals("sofisa", bankByPkg?.key)
+        assertEquals("Sofisa Direto", bankByPkg?.name)
+
+        // Pix enviado do Sofisa para o Mercado Pago NÃO pode ser capturado pelo Mercado Pago
+        val pixToMercadoPago = BankRegistry.findBankByPackageOrContent(
+            "br.com.sofisadireto",
+            "Pix enviado",
+            "Pix de R$ 170 enviado para Henrique Vital - Mercado Pago"
+        )
+        assertNotNull(pixToMercadoPago)
+        assertEquals("sofisa", pixToMercadoPago?.key)
+        assertEquals("Sofisa Direto", pixToMercadoPago?.name)
+
+        // Transferência com destinatário no texto sem pacote específico
+        val pixUnknownPkg = BankRegistry.findBankByPackageOrContent(
+            "com.google.android.gm",
+            "Comprovante Sofisa",
+            "Sofisa: Você transferiu R$ 170,00 para Henrique Vital - Mercado Pago"
+        )
+        assertNotNull(pixUnknownPkg)
+        assertEquals("sofisa", pixUnknownPkg?.key)
+    }
+
+    @Test
     fun testFindBankByName() {
         assertEquals("Banco Inter", BankRegistry.findBankByName("Cartão Inter")?.name)
         assertEquals("Mercado Pago", BankRegistry.findBankByName("Mercado Pago 2")?.name)

@@ -123,7 +123,14 @@ object BankRegistry {
             cardName = "Cartão Sofisa",
             colorHex = 0xFF005C8AL, // Azul Sofisa
             icon = "🔷",
-            packageNames = listOf("br.com.sofisa.direto"),
+            packageNames = listOf(
+                "br.com.sofisadireto",
+                "br.com.sofisa.direto",
+                "br.com.sofisa",
+                "com.sofisadireto",
+                "com.sofisa",
+                "br.com.bancosofisa"
+            ),
             keywords = listOf("sofisa direto", "sofisa", "banco sofisa")
         ),
         SupportedBank(
@@ -195,9 +202,21 @@ object BankRegistry {
         val pkg = packageName.lowercase()
         val text = "$title $content".lowercase()
 
-        // 1. Match por pacote Android exato
+        // 1. Match direto por pacote Android (inclusive casos como br.com.sofisadireto)
+        if (pkg.contains("sofisa")) return ALL_BANKS.find { it.key == "sofisa" }
+        if (pkg.contains("mercadopago") || pkg.contains("mercadolivre")) return ALL_BANKS.find { it.key == "mercadopago" }
+        if (pkg.contains("nubank")) return ALL_BANKS.find { it.key == "nubank" }
+        if (pkg.contains("bancointer") || pkg.contains("intermedium")) return ALL_BANKS.find { it.key == "inter" }
+        if (pkg.contains("c6bank")) return ALL_BANKS.find { it.key == "c6" }
+        if (pkg.contains("picpay")) return ALL_BANKS.find { it.key == "picpay" }
+        if (pkg.contains("willbank")) return ALL_BANKS.find { it.key == "will" }
+        if (pkg.contains("pagbank") || pkg.contains("pagseguro")) return ALL_BANKS.find { it.key == "pagbank" }
+
         val byPackage = ALL_BANKS.find { bank ->
-            bank.packageNames.any { p -> pkg.contains(p) || p.contains(pkg) }
+            bank.packageNames.any { p ->
+                val pClean = p.lowercase()
+                pkg == pClean || pkg.contains(pClean) || pClean.contains(pkg)
+            }
         }
         if (byPackage != null) return byPackage
 
@@ -212,6 +231,18 @@ object BankRegistry {
         }
 
         // 3. Match por palavras-chave
+        // Se for Pix enviado ou transferência enviada ("para [Banco]"), o banco do destinatário NÃO pode se passar pelo banco de origem
+        val textForOrigin = if (text.contains("para ") || text.contains("destinatário") || text.contains("destinatario") || text.contains("enviado a")) {
+            text.replace(Regex("(?:para|destinat[aá]rio:?|a favor de|benefici[aá]rio:?|enviado a).*"), "")
+        } else {
+            text
+        }
+
+        val byOriginKeywords = ALL_BANKS.find { bank ->
+            bank.keywords.any { kw -> textForOrigin.contains(kw) }
+        }
+        if (byOriginKeywords != null) return byOriginKeywords
+
         return ALL_BANKS.find { bank ->
             bank.keywords.any { kw -> text.contains(kw) }
         }

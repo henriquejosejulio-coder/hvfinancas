@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
@@ -53,6 +54,18 @@
             <intent-filter>
                 <action android:name="com.example.mobillsfinancas.ACTION_SET_INSTALLMENTS" />
                 <action android:name="com.example.mobillsfinancas.ACTION_DISMISS_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Receiver para Alertas de Fechamento, Vencimento e Lembrete (Snooze) de Faturas -->
+        <receiver
+            android:name=".services.InvoiceAlertReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.mobillsfinancas.ACTION_CHECK_DAILY_INVOICES" />
+                <action android:name="com.example.mobillsfinancas.ACTION_SNOOZE_INVOICE" />
+                <action android:name="com.example.mobillsfinancas.ACTION_SNOOZE_FIRED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
     </application>

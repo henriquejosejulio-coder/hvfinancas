@@ -68,6 +68,10 @@ object Formatters {
         return java.text.SimpleDateFormat("dd/MM/yyyy", ptBrLocale).format(java.util.Date())
     }
 
+    fun formatDateTime(millis: Long): String {
+        return java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", ptBrLocale).format(java.util.Date(millis))
+    }
+
     fun toCurrencyTextFieldValue(amount: Double): TextFieldValue {
         val formatted = if (amount > 0.0) formatCurrencyPlain(amount) else ""
         return TextFieldValue(

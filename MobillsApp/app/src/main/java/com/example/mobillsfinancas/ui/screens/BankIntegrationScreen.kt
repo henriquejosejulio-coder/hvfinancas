@@ -12,6 +12,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +34,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import com.example.mobillsfinancas.data.AuditLogEntry
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,12 +47,14 @@ fun BankIntegrationScreen(
     onImportBackup: (String) -> Boolean,
     onClearCurrentMonth: () -> Unit,
     onClearAllTransactions: () -> Unit,
-    onStartProfessorMode: (() -> Unit)? = null
+    onStartProfessorMode: (() -> Unit)? = null,
+    auditLogs: List<AuditLogEntry> = emptyList()
 ) {
     val context = LocalContext.current
     var selectedTarget by remember { mutableStateOf("Cartão Inter") }
     var fileContent by remember { mutableStateOf("") }
     var importStatusMessage by remember { mutableStateOf("") }
+    var showAuditLogDialog by remember { mutableStateOf(false) }
     var isNotificationListenerEnabled by remember {
         mutableStateOf(PermissionHelper.isNotificationListenerEnabled(context))
     }
@@ -410,6 +415,31 @@ fun BankIntegrationScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedButton(
+                    onClick = { showAuditLogDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text("📋", fontSize = 15.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Histórico de Auditoria & Alterações (${auditLogs.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+                }
+
                 // DIALOG DE EXPORTAÇÃO
                 if (showBackupDialog) {
                     AlertDialog(
@@ -666,6 +696,145 @@ fun BankIntegrationScreen(
                         dismissButton = {
                             OutlinedButton(onClick = { showConfirmRestoreDialog = false }) {
                                 Text("Cancelar")
+                            }
+                        }
+                    )
+                }
+
+                // DIALOG DE AUDITORIA & HISTÓRICO COMPLETO
+                if (showAuditLogDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAuditLogDialog = false },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📋", fontSize = 20.sp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Histórico de Auditoria", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                    Text("${auditLogs.size} alteração(ões) registrada(s)", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        },
+                        text = {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "Registro cronológico de todas as ações no app (capturas de banco, edições, exclusões e acertos). Este histórico é exportado junto com o backup JSON para auditoria completa.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                if (auditLogs.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 24.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "Nenhuma alteração registrada ainda.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 350.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(auditLogs, key = { it.id }) { log ->
+                                            val (icon, badgeColor) = when {
+                                                log.action.contains("CAPTURA") -> "⚡" to Color(0xFF00E676)
+                                                log.action.contains("EDITOU") -> "✏️" to Color(0xFF38BDF8)
+                                                log.action.contains("EXCLUIU") -> "🗑️" to Color(0xFFEF4444)
+                                                log.action.contains("TRANSFERENCIA") -> "⇄" to Color(0xFF818CF8)
+                                                log.action.contains("FATURA") -> "💳" to Color(0xFFA855F7)
+                                                log.action.contains("ACERTOU") -> "⚖️" to Color(0xFFF59E0B)
+                                                log.action.contains("TETO") -> "🎯" to Color(0xFFFF9800)
+                                                else -> "📝" to Color(0xFF94A3B8)
+                                            }
+
+                                            Card(
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Column(modifier = Modifier.padding(10.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(icon, fontSize = 13.sp)
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = log.action,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = badgeColor,
+                                                                fontSize = 10.sp
+                                                            )
+                                                        }
+                                                        Text(
+                                                            text = log.dateTimeStr,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            fontSize = 10.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = log.summary,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 12.sp
+                                                    )
+                                                    if (log.details.isNotBlank()) {
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = log.details,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            fontSize = 10.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showAuditLogDialog = false }) {
+                                Text("Fechar", fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            if (auditLogs.isNotEmpty()) {
+                                TextButton(
+                                    onClick = {
+                                        val sb = StringBuilder()
+                                        sb.append("=== AUDITORIA HV FINANÇAS ===\n")
+                                        for (l in auditLogs) {
+                                            sb.append("[${l.dateTimeStr}] [${l.action}] ${l.summary}\n")
+                                            if (l.details.isNotBlank()) {
+                                                sb.append("   Detalhes: ${l.details}\n")
+                                            }
+                                        }
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("HVFinancas_Auditoria", sb.toString())
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Auditoria copiada para a área de transferência!", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Copiar Texto", color = Color(0xFF38BDF8))
+                                }
                             }
                         }
                     )

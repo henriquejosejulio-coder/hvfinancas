@@ -19,6 +19,7 @@ import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.PaymentType
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
+import com.example.mobillsfinancas.data.isInvoicePayment
 import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.utils.Formatters
@@ -103,12 +104,33 @@ fun TransactionItemView(
                         PaymentType.CASH -> "💵 Dinheiro"
                         PaymentType.INVESTMENT -> "📈 Aplicação"
                     }
-                    val displayDate = if (item.date.isNotBlank()) {
-                        item.date.replace("Vencimento: ", "Venc: ").trim()
-                    } else {
-                        item.monthYear
+                    val displayDate = when {
+                        item.date.isNotBlank() -> item.date.replace("Vencimento: ", "Venc: ").trim()
+                        item.monthYear.isNotBlank() -> {
+                            val parts = item.monthYear.trim().split(" ")
+                            if (parts.size >= 2) {
+                                val m = parts[0].take(3).lowercase().replaceFirstChar { it.uppercase() }
+                                val y = parts[1].takeLast(2)
+                                "$m/$y"
+                            } else {
+                                item.monthYear
+                            }
+                        }
+                        else -> ""
                     }
 
+                    // Linha da Categoria e Conta (sempre visível, nunca espremida)
+                    Text(
+                        text = "${item.category} • ${item.accountOrCardName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+
+                    // Linha de Badges (Data, Fixa, Parcelas, Fora do Teto)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 3.dp)
@@ -123,7 +145,9 @@ fun TransactionItemView(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
@@ -139,7 +163,9 @@ fun TransactionItemView(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MobillsGreenPrimary
+                                    color = MobillsGreenPrimary,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
@@ -153,13 +179,16 @@ fun TransactionItemView(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
                         }
 
-                        if (!item.includeInBudget) {
+                        // Badge 'FORA DO TETO' apenas para despesas explicitamente excluídas do teto (não transferência e não pagamento de fatura)
+                        if (item.type == TransactionType.EXPENSE && !item.includeInBudget && !isInvoicePayment(item)) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = Color(0xFF64748B).copy(alpha = 0.15f)
@@ -169,21 +198,12 @@ fun TransactionItemView(
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF64748B)
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
-                            Spacer(modifier = Modifier.width(4.dp))
                         }
-
-                        Text(
-                            text = "${item.category} • ${item.accountOrCardName}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
                     }
                 }
 
@@ -242,7 +262,9 @@ fun TransactionItemView(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = statusColor
+                            color = statusColor,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }

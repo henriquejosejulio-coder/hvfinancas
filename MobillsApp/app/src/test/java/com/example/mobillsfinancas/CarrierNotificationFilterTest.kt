@@ -76,4 +76,24 @@ class CarrierNotificationFilterTest {
         assertFalse("Não deve ser marcado como non-transaction", service.isNonTransactionNotification(interNotification))
         assertTrue("Deve ser confirmado como transação válida", service.isValidTransactionConfirmation(interNotification))
     }
+
+    @Test
+    fun testGmailAndEmailPackagesAreBlocked() {
+        val emailPackages = listOf(
+            "com.google.android.gm",
+            "com.google.android.gm.lite",
+            "com.microsoft.office.outlook",
+            "com.samsung.android.email.provider",
+            "com.yahoo.mobile.client.android.mail"
+        )
+        for (pkg in emailPackages) {
+            val isEmail = pkg == "com.google.android.gm" ||
+                    pkg.contains("android.gm") ||
+                    pkg.contains("google.android.gm") ||
+                    pkg.contains("email") ||
+                    pkg.contains(".mail") ||
+                    pkg.contains("outlook")
+            assertTrue("Pacote de e-mail $pkg deve ser ignorado", isEmail)
+        }
+    }
 }

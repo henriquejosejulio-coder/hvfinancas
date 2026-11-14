@@ -2,6 +2,7 @@ package com.example.mobillsfinancas.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -32,7 +33,8 @@ fun QuickInstallmentCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable { onOpenDetails() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)), // Rich slate dark
         border = BorderStroke(1.5.dp, MobillsGreenPrimary),
@@ -237,13 +239,27 @@ fun QuickInstallmentCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "✓ Registrado como Pago no débito/saldo da conta.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MobillsGreenPrimary
-                    )
-                    TextButton(onClick = onDismiss) {
-                        Text("OK", color = MobillsGreenPrimary, fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "✓ Registrado como Pago no débito/saldo da conta.",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MobillsGreenPrimary
+                        )
+                        Text(
+                            text = "Toque no card ou em 'Editar' para alterar categoria ou valor",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                    Row {
+                        TextButton(onClick = onOpenDetails) {
+                            Text("Editar ✏️", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = onDismiss) {
+                            Text("OK", color = MobillsGreenPrimary, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

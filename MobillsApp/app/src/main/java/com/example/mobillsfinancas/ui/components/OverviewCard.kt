@@ -42,16 +42,26 @@ fun OverviewCard(
     // Renda do mês base (salários e receitas do mês)
     val baseIncome = if (previousMonthBalance > 0.0) totalIncome else currentMonthIncome
 
+    // Despesas fora do teto (exceto pagamento de fatura, para não duplicar dívida de cartão já liquidada)
+    val extraExpensesOutOfBudget = items.filter { item ->
+        item.type == TransactionType.EXPENSE &&
+        !item.includeInBudget &&
+        !isInvoicePayment(item)
+    }.sumOf { it.amount }
+
     // Total comprometido = Despesas já lançadas no mês + Tetos reservados ainda não gastos (ex: R$ 700 do Mercado)
     val totalCommitted = totalExpense + unspentBudgets
 
-    // Sobra líquida do mês gerada pelo salário e receitas
-    val salarySurplus = baseIncome - totalCommitted
+    // Total geral de saídas e reservas do mês (compromissos + gastos avulsos fora do teto)
+    val totalSpentAndCommitted = totalCommitted + extraExpensesOutOfBudget
+
+    // Sobra líquida real gerada pela renda do mês após abater todas as despesas comprometidas e extras fora do teto
+    val salarySurplus = baseIncome - totalSpentAndCommitted
 
     // Evita contagem dupla de transferências internas:
     // Se o usuário transferiu parte da sobra do salário da conta principal para outra conta corrente (ex: Mercado Pago),
     // esse valor transferido já está dentro de baseIncome E também dentro do saldo da outra conta.
-    // O abatimento é no máximo a sobra do salário que foi transferida.
+    // O abatimento é no máximo a sobra salarial real que existia para ser transferida.
     val duplicateTransferAmount = if (salarySurplus > 0.0) {
         minOf(transfersToOtherAccounts, salarySurplus)
     } else {
@@ -64,15 +74,8 @@ fun OverviewCard(
     // Renda total considerada: receitas do mês + saldo externo disponível em outras contas correntes
     val effectiveIncome = baseIncome + netOtherAccountsBalance
 
-    // Despesas fora do teto (exceto pagamento de fatura, para não duplicar dívida de cartão já liquidada)
-    val extraExpensesOutOfBudget = items.filter { item ->
-        item.type == TransactionType.EXPENSE &&
-        !item.includeInBudget &&
-        !isInvoicePayment(item)
-    }.sumOf { it.amount }
-
-    // Disponível Real para Gastar Comigo = Receita Efetiva - Total Comprometido - Despesas Fora do Teto
-    val freeToSpend = (effectiveIncome - totalCommitted) - extraExpensesOutOfBudget
+    // Disponível Real para Gastar Comigo = Receita Efetiva Total - Total Geral de Saídas e Reservas
+    val freeToSpend = effectiveIncome - totalSpentAndCommitted
 
     Card(
         modifier = Modifier
@@ -172,7 +175,6 @@ fun OverviewCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Barra proporcional de Despesas vs Receitas
-            val totalSpentAndCommitted = totalCommitted + extraExpensesOutOfBudget
             val totalBase = maxOf(effectiveIncome, totalSpentAndCommitted, 1.0)
             val expenseRatio = (totalSpentAndCommitted / totalBase).toFloat().coerceIn(0f, 1f)
 

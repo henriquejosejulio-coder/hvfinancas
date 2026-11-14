@@ -54,9 +54,40 @@ class MainActivity : ComponentActivity() {
         Log.e("MainActivity", "Erro ao sincronizar mês atual na abertura", t)
     }
 
+    // Inicializa o agendador de alertas de fechamento e vencimento de faturas de cartões
+    try {
+        com.example.mobillsfinancas.services.InvoiceAlertManager.createNotificationChannel(applicationContext)
+        com.example.mobillsfinancas.services.InvoiceAlertManager.scheduleDailyAlarm(applicationContext)
+        com.example.mobillsfinancas.services.InvoiceAlertManager.checkAndNotifyInvoices(applicationContext)
+    } catch (t: Throwable) {
+        Log.e("MainActivity", "Erro ao inicializar InvoiceAlertManager", t)
+    }
+
+    // Sincroniza a taxa oficial do CDI via API do Banco Central em background
+    try {
+        com.example.mobillsfinancas.data.FinanceRepository.getInstance(applicationContext).syncCdiRateFromBcbAsync()
+    } catch (t: Throwable) {
+        Log.e("MainActivity", "Erro ao sincronizar CDI BCB", t)
+    }
+
     enableEdgeToEdge()
     setContent {
       MobillsFinancasTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { MainNavigation() } }
     }
+  }
+
+  override fun onResume() {
+      super.onResume()
+      try {
+          com.example.mobillsfinancas.services.InvoiceAlertManager.checkAndNotifyInvoices(applicationContext)
+          com.example.mobillsfinancas.data.FinanceRepository.getInstance(applicationContext).syncCdiRateFromBcbAsync()
+      } catch (e: Exception) {
+          Log.e("MainActivity", "Erro ao checar faturas no onResume", e)
+      }
+  }
+
+  override fun onNewIntent(intent: android.content.Intent) {
+      super.onNewIntent(intent)
+      setIntent(intent)
   }
 }

@@ -12,6 +12,7 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.mobillsfinancas.MainActivity
+import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.data.FinanceRepository
 import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.PaymentType
@@ -33,9 +34,24 @@ class BankNotificationService : NotificationListenerService() {
     // Cache simples para evitar registrar a mesma compra duplicada em menos de 2 minutos
     private val recentCaptures = mutableMapOf<String, Long>()
 
+    data class OutgoingPixRecord(
+        val amount: Double,
+        val fromAccountId: String,
+        val txId: String,
+        val timestamp: Long
+    )
+
     companion object {
         var isConnected: Boolean = false
             private set
+
+        private val recentTransfers = mutableMapOf<String, Long>()
+        private val recentOutgoingPix = mutableListOf<OutgoingPixRecord>()
+
+        fun clearTransferCaches() {
+            recentTransfers.clear()
+            recentOutgoingPix.clear()
+        }
 
         fun saveDebugLog(context: Context, logEntry: String) {
             try {
@@ -90,6 +106,14 @@ class BankNotificationService : NotificationListenerService() {
         isConnected = true
         saveDebugLog(applicationContext, "✅ Sincronizador CONECTADO ao Android com sucesso.")
         Log.d("BankNotificationService", "✅ Sincronizador de Notificações CONECTADO com sucesso ao Android!")
+
+        try {
+            InvoiceAlertManager.createNotificationChannel(applicationContext)
+            InvoiceAlertManager.scheduleDailyAlarm(applicationContext)
+            InvoiceAlertManager.checkAndNotifyInvoices(applicationContext)
+        } catch (e: Exception) {
+            Log.e("BankNotificationService", "Erro ao verificar alertas de fatura em onListenerConnected", e)
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -135,7 +159,18 @@ class BankNotificationService : NotificationListenerService() {
             return
         }
 
-        // 2. NUNCA processar notificações de operadoras telefônicas (TIM, Claro, Vivo, Oi) que enviam spam de ofertas/planos
+        // 2. NUNCA processar notificações do Gmail e clientes de e-mail (desativado a pedido do usuário)
+        if (packageName == "com.google.android.gm" ||
+            packageName.contains("android.gm") ||
+            packageName.contains("google.android.gm") ||
+            packageName.contains("email") ||
+            packageName.contains(".mail") ||
+            packageName.contains("outlook")) {
+            saveDebugLog(applicationContext, "🚫 Notificação de e-mail/Gmail ignorada (leitura desativada)")
+            return
+        }
+
+        // 3. NUNCA processar notificações de operadoras telefônicas (TIM, Claro, Vivo, Oi) que enviam spam de ofertas/planos
         if (packageName.contains("timbrasil") ||
             packageName.contains("meutim") ||
             packageName.contains("tim.") ||
@@ -188,6 +223,17 @@ class BankNotificationService : NotificationListenerService() {
         if (fullContent.contains("Receita Registrada!", ignoreCase = true) ||
             fullContent.contains("Compra Registrada!", ignoreCase = true) ||
             fullContent.contains("HV Finanças", ignoreCase = true)) {
+            return false
+        }
+
+        // 0. NUNCA processar notificações do Gmail e clientes de e-mail (desativado a pedido do usuário)
+        if (packageName == "com.google.android.gm" ||
+            packageName.contains("android.gm") ||
+            packageName.contains("google.android.gm") ||
+            packageName.contains("email") ||
+            packageName.contains(".mail") ||
+            packageName.contains("outlook")) {
+            saveDebugLog(context, "🚫 Ignorado: Leitura por notificação de e-mail/Gmail está desativada.")
             return false
         }
 
@@ -343,6 +389,111 @@ class BankNotificationService : NotificationListenerService() {
         // 3. Define a forma de pagamento e a conta/cartão exatos
         val defaultAccount = repository.getDefaultAccount() ?: repository.accounts.value.firstOrNull()
         val defaultAccountName = defaultAccount?.name ?: "Conta Principal"
+        val currentMonth = repository.selectedMonth.value.ifEmpty { MonthHelper.getCurrentMonthYear() }
+        val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        val today = dateFormat.format(Date())
+
+        // 3.1 TRANSFERÊNCIAS ENTRE CONTAS PRÓPRIAS (Pix enviado para outra conta do usuário)
+        if (isPixEnviado) {
+            val fromAccount = if (detectedBank != null) {
+                repository.getOrCreateAccountForBank(detectedBank).first
+            } else {
+                defaultAccount ?: repository.accounts.value.firstOrNull()
+            }
+
+            if (fromAccount != null) {
+                val destAccount = findDestinationAccount(fromAccount, fullContent)
+                if (destAccount != null && destAccount.id != fromAccount.id) {
+                    repository.transfer(
+                        fromAccountId = fromAccount.id,
+                        toAccountId = destAccount.id,
+                        amount = cleanAmount,
+                        isScheduled = false,
+                        date = today
+                    )
+                    recentTransfers["${cleanAmount}_${destAccount.id}"] = now
+                    recentTransfers["${cleanAmount}_${fromAccount.id}"] = now
+
+                    val transferDesc = "${fromAccount.name} ➔ ${destAccount.name}"
+                    saveDebugLog(context, "🔄 Transferência registrada: $transferDesc - R$ $cleanAmount")
+                    Log.d("BankNotificationService", "Transferência registrada entre contas: $transferDesc - R$ $cleanAmount")
+
+                    val transferTx = TransactionItem(
+                        description = transferDesc,
+                        amount = cleanAmount,
+                        type = TransactionType.TRANSFER,
+                        category = "Transferência",
+                        accountOrCardName = fromAccount.name,
+                        paymentType = PaymentType.PIX,
+                        monthYear = currentMonth,
+                        date = today,
+                        status = PaymentStatus.PAID,
+                        includeInBudget = false
+                    )
+                    repository.addRecentCapturedTransaction(transferTx)
+                    showInteractiveConfirmationNotification(context, transferTx, cleanAmount, transferDesc, fromAccount.name, false, null)
+                    return true
+                }
+            }
+        }
+
+        // 3.2 SUPRESSÃO DE DUPLICIDADE EM TRANSFERÊNCIA OU RECONCILIAÇÃO INTELIGENTE
+        if (isIncome) {
+            val toAccount = if (detectedBank != null) {
+                repository.getOrCreateAccountForBank(detectedBank).first
+            } else {
+                defaultAccount ?: repository.accounts.value.firstOrNull()
+            }
+
+            if (toAccount != null) {
+                // A) Supressão se a transferência interna já foi registrada nos últimos 3 minutos
+                val lastTransferTime = recentTransfers["${cleanAmount}_${toAccount.id}"]
+                if (lastTransferTime != null && (now - lastTransferTime) < 180_000) {
+                    saveDebugLog(context, "✅ Recebimento de R$ $cleanAmount em '${toAccount.name}' vinculado à transferência interna recente. Entrada duplicada evitada.")
+                    Log.d("BankNotificationService", "Recebimento suprimido: transferência interna já processada.")
+                    return true
+                }
+
+                // B) Reconciliação se o Pix de saída foi registrado segundos antes sem o nome do banco de destino
+                val matchingOutgoing = recentOutgoingPix.find {
+                    it.amount == cleanAmount &&
+                    it.fromAccountId != toAccount.id &&
+                    (now - it.timestamp) < 180_000
+                }
+                if (matchingOutgoing != null) {
+                    recentOutgoingPix.remove(matchingOutgoing)
+                    repository.deleteTransaction(matchingOutgoing.txId, currentMonth, true)
+                    repository.transfer(
+                        fromAccountId = matchingOutgoing.fromAccountId,
+                        toAccountId = toAccount.id,
+                        amount = cleanAmount,
+                        isScheduled = false,
+                        date = today
+                    )
+                    recentTransfers["${cleanAmount}_${toAccount.id}"] = now
+                    val fromAcc = repository.accounts.value.find { it.id == matchingOutgoing.fromAccountId }
+                    val transferDesc = "${fromAcc?.name ?: "Conta"} ➔ ${toAccount.name}"
+                    saveDebugLog(context, "🔄 Reconciliação inteligente: saída e entrada de R$ $cleanAmount unificadas em $transferDesc!")
+                    Log.d("BankNotificationService", "Reconciliação de transferência concluída: $transferDesc")
+
+                    val transferTx = TransactionItem(
+                        description = transferDesc,
+                        amount = cleanAmount,
+                        type = TransactionType.TRANSFER,
+                        category = "Transferência",
+                        accountOrCardName = fromAcc?.name ?: toAccount.name,
+                        paymentType = PaymentType.PIX,
+                        monthYear = currentMonth,
+                        date = today,
+                        status = PaymentStatus.PAID,
+                        includeInBudget = false
+                    )
+                    repository.addRecentCapturedTransaction(transferTx)
+                    showInteractiveConfirmationNotification(context, transferTx, cleanAmount, transferDesc, toAccount.name, false, null)
+                    return true
+                }
+            }
+        }
 
         val paymentMethod: String
         val paymentType: PaymentType
@@ -405,10 +556,6 @@ class BankNotificationService : NotificationListenerService() {
                        else if (isIncome) "Salário / Receita"
                        else inferCategory(storeName, paymentMethod)
 
-        val currentMonth = repository.selectedMonth.value.ifEmpty { MonthHelper.getCurrentMonthYear() }
-        val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        val today = dateFormat.format(Date())
-
         val targetMonth = if (paymentType == PaymentType.CREDIT_CARD) {
             val card = repository.cards.value.find { it.name.equals(paymentMethod, ignoreCase = true) }
             if (card != null && card.closingDay > 0) {
@@ -418,7 +565,7 @@ class BankNotificationService : NotificationListenerService() {
             currentMonth
         }
 
-        val description = if (storeName.isNotBlank()) {
+        val rawDesc = if (storeName.isNotBlank()) {
             if (isIncome) {
                 if (isVacationOr13th) "Férias/13º: $storeName"
                 else if (isSalary) "Salário: $storeName"
@@ -434,6 +581,7 @@ class BankNotificationService : NotificationListenerService() {
                 else "Pix Recebido"
             } else (if (title.isNotBlank()) title else paymentMethod)
         }
+        val description = com.example.mobillsfinancas.utils.TransactionDescriptionCleaner.cleanDescription(rawDesc, category, paymentMethod)
 
         // 5. Leitor inteligente de parcelas (para compras parceladas)
         var totalInstallments = 1
@@ -499,6 +647,23 @@ class BankNotificationService : NotificationListenerService() {
         // Define como a compra recente capturada para exibir o card de confirmação rápida na home do app
         repository.addRecentCapturedTransaction(item)
 
+        if (isPixEnviado && !isIncome) {
+            val originAcc = if (detectedBank != null) {
+                repository.findMatchingAccount(detectedBank.name, fallbackToDefault = false)
+            } else defaultAccount
+            if (originAcc != null) {
+                recentOutgoingPix.add(
+                    OutgoingPixRecord(
+                        amount = calculatedAmount,
+                        fromAccountId = originAcc.id,
+                        txId = item.id,
+                        timestamp = now
+                    )
+                )
+                recentOutgoingPix.removeAll { (now - it.timestamp) > 300_000 }
+            }
+        }
+
         saveDebugLog(context, "✅ Capturado: $finalDesc - R$ $calculatedAmount ($paymentMethod)")
         Log.d("BankNotificationService", "Lançamento capturado e salvo: $finalDesc | R$ $calculatedAmount no $paymentMethod (${totalInstallments}x)")
 
@@ -549,6 +714,39 @@ class BankNotificationService : NotificationListenerService() {
         }
 
         return 0.0
+    }
+
+    internal fun findDestinationAccount(originAccount: AccountItem, text: String): AccountItem? {
+        val lowerText = text.lowercase()
+
+        // 1. Procura se o nome exato de alguma conta do usuário (diferente da origem) é mencionada no texto
+        val accounts = repository.accounts.value
+        for (acc in accounts) {
+            if (acc.id == originAccount.id) continue
+            val cleanName = acc.name.lowercase().trim()
+            if (cleanName.length >= 3 && lowerText.contains(cleanName)) {
+                return acc
+            }
+        }
+
+        // 2. Procura se o nome ou palavras-chave de algum banco cadastrado aparece no texto da transferência
+        for (bank in BankRegistry.ALL_BANKS) {
+            val isOriginBank = originAccount.name.contains(bank.name, ignoreCase = true) ||
+                    bank.keywords.any { originAccount.name.contains(it, ignoreCase = true) }
+            if (isOriginBank) continue
+
+            val matches = bank.keywords.any { kw ->
+                Regex("\\b${Regex.escape(kw)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(lowerText)
+            }
+            if (matches) {
+                val matchingAcc = repository.findMatchingAccount(bank.name, fallbackToDefault = false)
+                if (matchingAcc != null && matchingAcc.id != originAccount.id) {
+                    return matchingAcc
+                }
+            }
+        }
+
+        return null
     }
 
     internal fun isValidStoreCandidate(candidate: String): Boolean {
@@ -633,12 +831,12 @@ class BankNotificationService : NotificationListenerService() {
             if (isValidStoreCandidate(cand)) return cand
         }
 
-        // 5. "Você pagou a Fulano", "Você pagou R$ XX em [Estabelecimento]" (Mercado Pago)
-        val pagouPattern = Pattern.compile("(?:você\\s+pagou\\s+a|você\\s+pagou\\s+(?:R?\\$?[0-9.,]+\\s+)?em)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        // 5. "Você pagou a Fulano", "Você pagou R$ XX em [Estabelecimento]", "Você pagou Fulano" (Mercado Pago)
+        val pagouPattern = Pattern.compile("(?:você\\s+pagou\\s+(?:a\\s+|em\\s+|para\\s+)?|você\\s+pagou\\s+|voce\\s+pagou\\s+)([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
         val mPagou = pagouPattern.matcher(text)
         if (mPagou.find()) {
             val cand = mPagou.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
         // 6. "Você transferiu para Fulano", "Pix para Fulano", "Pix enviado para Fulano"
@@ -682,25 +880,7 @@ class BankNotificationService : NotificationListenerService() {
     }
 
     private fun cleanStoreName(raw: String): String {
-        val trimmed = raw.trim()
-        if (trimmed.contains("UBER", ignoreCase = true)) {
-            return "Uber"
-        }
-        if (trimmed.contains("99APP", ignoreCase = true) || trimmed.contains("99 TECNOLOGIA", ignoreCase = true)) {
-            return "99"
-        }
-        if (trimmed.contains("IFOOD", ignoreCase = true)) {
-            return "iFood"
-        }
-        if (trimmed.contains("GOOGLE", ignoreCase = true) && (trimmed.contains("YOUTUB", ignoreCase = true) || trimmed.contains("YOUTUBE", ignoreCase = true))) {
-            return "Google YouTube"
-        }
-        // Remove termos empresariais que costumam poluir a descrição de comprovantes bancários
-        val cleaned = trimmed
-            .replace(Regex("(?i)\\b(TECNOLOGIA LTDA|INSTITUICAO DE PAGAMENTO|PAGAMENTOS|TECNOLOGIA|LTDA|S\\.A\\.|SA|ME|EPP)\\b"), "")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        return cleaned.ifEmpty { trimmed }
+        return com.example.mobillsfinancas.utils.TransactionDescriptionCleaner.cleanDescription(raw)
     }
 
     internal fun isNonTransactionNotification(content: String): Boolean {
@@ -979,10 +1159,12 @@ class BankNotificationService : NotificationListenerService() {
         try {
             val notifId = (System.currentTimeMillis() % 100000).toInt()
             val formattedAmount = String.format(Locale.getDefault(), "R$ %.2f", amount)
-            val title = if (isIncome) "💰 Receita Registrada!" else "💳 Compra Registrada!"
+            val title = if (item.type == TransactionType.TRANSFER) "⇄ Transferência Registrada!" else if (isIncome) "💰 Receita Registrada!" else "💳 Compra Registrada!"
             val noticeSuffix = if (!extraNotice.isNullOrBlank()) " ($extraNotice)" else ""
 
-            val body = if (item.paymentType == PaymentType.CREDIT_CARD && item.totalInstallments == 1) {
+            val body = if (item.type == TransactionType.TRANSFER) {
+                "$formattedAmount transferido ($description) com sucesso."
+            } else if (item.paymentType == PaymentType.CREDIT_CARD && item.totalInstallments == 1) {
                 "$formattedAmount em '$description' ($method).$noticeSuffix Foi parcelado? Escolha abaixo:"
             } else {
                 "$formattedAmount em '$description' ($method) adicionado com sucesso.$noticeSuffix"

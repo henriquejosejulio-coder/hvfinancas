@@ -10,9 +10,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -83,7 +85,24 @@ fun MainScreen(
         }
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val initialTargetTab = remember {
+        val actIntent = (context as? androidx.activity.ComponentActivity)?.intent
+        val target = actIntent?.getIntExtra("EXTRA_TARGET_TAB", -1) ?: -1
+        if (target in 0..5) {
+            actIntent?.removeExtra("EXTRA_TARGET_TAB")
+            target
+        } else 0
+    }
+    var selectedTab by remember { mutableIntStateOf(initialTargetTab) }
+
+    LaunchedEffect(Unit) {
+        val actIntent = (context as? androidx.activity.ComponentActivity)?.intent
+        val target = actIntent?.getIntExtra("EXTRA_TARGET_TAB", -1) ?: -1
+        if (target in 0..5) {
+            selectedTab = target
+            actIntent?.removeExtra("EXTRA_TARGET_TAB")
+        }
+    }
     var showMobillsTransactionSheet by remember { mutableStateOf(false) }
     var editingTransaction by remember { mutableStateOf<TransactionItem?>(null) }
 
@@ -244,31 +263,37 @@ fun MainScreen(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = { Text("🏠", fontSize = 18.sp) },
-                    label = { Text("Geral", fontSize = 10.sp) }
+                    label = { Text("Geral", fontSize = 9.sp, maxLines = 1) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = { Text("📋", fontSize = 18.sp) },
-                    label = { Text("Extrato", fontSize = 10.sp) }
+                    label = { Text("Extrato", fontSize = 9.sp, maxLines = 1) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Text("💳", fontSize = 18.sp) },
-                    label = { Text("Cartões", fontSize = 10.sp) }
+                    label = { Text("Cartões", fontSize = 9.sp, maxLines = 1) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
                     icon = { Text("🏷️", fontSize = 18.sp) },
-                    label = { Text("Tags/Cat", fontSize = 10.sp) }
+                    label = { Text("Tags/Cat", fontSize = 9.sp, maxLines = 1) }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4 },
                     icon = { Text("🏦", fontSize = 18.sp) },
-                    label = { Text("Bancos", fontSize = 10.sp) }
+                    label = { Text("Bancos", fontSize = 9.sp, maxLines = 1) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 5,
+                    onClick = { selectedTab = 5 },
+                    icon = { Text("📜", fontSize = 18.sp) },
+                    label = { Text("Auditoria", fontSize = 9.sp, maxLines = 1) }
                 )
             }
         },
@@ -355,7 +380,8 @@ fun MainScreen(
                     onDeleteTransaction = { viewModel.deleteTransaction(it) },
                     onClearCurrentMonth = { viewModel.clearCurrentMonthTransactions() },
                     onMarkMultipleStatus = { ids, status -> viewModel.markTransactionsStatus(ids, status) },
-                    onDeleteMultipleTransactions = { ids -> viewModel.deleteMultipleTransactions(ids) }
+                    onDeleteMultipleTransactions = { ids -> viewModel.deleteMultipleTransactions(ids) },
+                    onNavigateToAudit = { selectedTab = 5 }
                 )
                 2 -> CardsTab(
                     cards = cards,
@@ -391,7 +417,12 @@ fun MainScreen(
                     onClearAllTransactions = { viewModel.clearAllTransactions() },
                     onStartProfessorMode = {
                         goToProfessorStep(1)
-                    }
+                    },
+                    auditLogs = viewModel.auditLogs.collectAsState().value
+                )
+                5 -> com.example.mobillsfinancas.ui.screens.AuditScreen(
+                    auditLogs = viewModel.auditLogs.collectAsState().value,
+                    onClearLogs = { viewModel.clearAuditLogs() }
                 )
             }
 
@@ -1743,7 +1774,8 @@ fun TransactionsTab(
     onDeleteTransaction: (String) -> Unit,
     onClearCurrentMonth: () -> Unit,
     onMarkMultipleStatus: (Set<String>, PaymentStatus) -> Unit,
-    onDeleteMultipleTransactions: (Set<String>) -> Unit
+    onDeleteMultipleTransactions: (Set<String>) -> Unit,
+    onNavigateToAudit: (() -> Unit)? = null
 ) {
     var filterIndex by remember { mutableIntStateOf(0) }
     val filters = listOf(
@@ -1753,7 +1785,8 @@ fun TransactionsTab(
         "📌 Desp. Fixas",
         "💵 Rec. Fixas",
         "Pendentes",
-        "Pagos"
+        "Pagos",
+        "📜 Histórico"
     )
     var showClearMonthDialog by remember { mutableStateOf(false) }
     var isBulkMode by remember { mutableStateOf(false) }
@@ -1798,8 +1831,12 @@ fun TransactionsTab(
                         Tab(
                             selected = filterIndex == index,
                             onClick = {
-                                filterIndex = index
-                                selectedIds = emptySet()
+                                if (index == 7) {
+                                    onNavigateToAudit?.invoke()
+                                } else {
+                                    filterIndex = index
+                                    selectedIds = emptySet()
+                                }
                             },
                             text = { Text(title, fontWeight = if (filterIndex == index) FontWeight.Bold else FontWeight.Normal) }
                         )
@@ -1808,18 +1845,22 @@ fun TransactionsTab(
             }
 
             item {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
                             text = "Lançamentos (${filteredItems.size})",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         if (filterIndex != 0 && filteredItems.isNotEmpty()) {
                             val totalFiltered = filteredItems.sumOf { it.amount }
@@ -1830,14 +1871,21 @@ fun TransactionsTab(
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (filterIndex == 1 || filterIndex == 3) com.example.mobillsfinancas.theme.ExpenseRed
                                         else if (filterIndex == 2 || filterIndex == 4) com.example.mobillsfinancas.theme.IncomeGreen
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
+
                     if (allItems.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isBulkMode) {
                                 Surface(
@@ -1875,7 +1923,7 @@ fun TransactionsTab(
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                        modifier = Modifier.padding(horizontal = 10.dp)
                                     ) {
                                         Text(
                                             text = "☑️ Em Massa",
@@ -1896,11 +1944,32 @@ fun TransactionsTab(
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                        modifier = Modifier.padding(horizontal = 10.dp)
                                     ) {
                                         Text(
                                             text = "🗑️ Limpar Mês",
                                             color = com.example.mobillsfinancas.theme.ExpenseRed,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    onClick = { onNavigateToAudit?.invoke() },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF818CF8).copy(alpha = 0.15f),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = "📜 Histórico",
+                                            color = Color(0xFF818CF8),
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,

@@ -107,37 +107,43 @@ data class AccountItem(
     val bankIcon: String = "🏦",
     val isDefault: Boolean = false,
     val includeInOverallBalance: Boolean = true, // false para Cofrinhos, Reservas e Investimentos (não somam no saldo livre)
-    val cdiRatePercentage: Double = 0.0 // Ex: 115.0 para 115% do CDI (Mercado Pago), 100.0 para 100% do CDI
+    val cdiRatePercentage: Double = 0.0, // Ex: 115.0 para 115% do CDI (Mercado Pago Cofrinho), 105.0 para 105% (Saldo Livre)
+    val taxRatePercentage: Double = 22.5 // Alíquota oficial de IR retido na fonte (padrão 22,5%)
 ) {
     /**
-     * Calcula o rendimento mensal estimado baseado no CDI atual (~14,15% a.a.) e dias úteis padrão (22 dias).
-     * No Mercado Pago e bancos brasileiros:
-     * - Saldo livre em conta rende 105% do CDI
-     * - Cofrinho rende 115% do CDI
+     * Calcula o rendimento mensal líquido estimado baseado no CDI oficial do Banco Central (Série 12)
+     * e o desconto de Imposto de Renda (IR) retido na fonte pelo banco (tabela regressiva padrão: 22,5%).
      */
     fun calculateMonthlyYield(
-        annualCdiRate: Double = 14.15,
+        dailyCdiRatePercent: Double = 0.050788,
         businessDaysCount: Int = 22
     ): Double {
-        if (balance <= 0 || cdiRatePercentage <= 0) return 0.0
-        val dailyCdi = Math.pow(1.0 + (annualCdiRate / 100.0), 1.0 / 252.0) - 1.0
-        val dailyRate = dailyCdi * (cdiRatePercentage / 100.0)
-        return balance * (Math.pow(1.0 + dailyRate, businessDaysCount.toDouble()) - 1.0)
+        if (balance <= 0.0 || cdiRatePercentage <= 0.0) return 0.0
+        val dailyCdiDecimal = dailyCdiRatePercent / 100.0
+        val dailyAccountRate = dailyCdiDecimal * (cdiRatePercentage / 100.0)
+        val grossMonthly = balance * (Math.pow(1.0 + dailyAccountRate, businessDaysCount.toDouble()) - 1.0)
+        val netMonthly = grossMonthly * (1.0 - (taxRatePercentage / 100.0))
+        return Math.round(netMonthly * 100.0) / 100.0
     }
 
     /**
-     * Calcula o rendimento diário estimado por dia útil com base na fórmula oficial ANBIMA usada pelos bancos.
-     * Corresponde exatamente ao valor creditado no extrato do banco (ex: Mercado Pago).
+     * Calcula o rendimento diário líquido estimado por dia útil com base na taxa CDI diária oficial
+     * do Banco Central (Série 12) e o desconto de Imposto de Renda (IR) de 22,5% retido na fonte.
+     *
+     * Bate com precisão de centavos com os extratos reais (Mercado Pago, Nubank, Sofisa):
+     * - Cofrinho (R$ 1.940,96 a 115% do CDI): +R$ 0,88
+     * - Saldo Livre (R$ 368,20 a 105% do CDI): +R$ 0,15
      */
     fun calculateDailyYield(
-        annualCdiRate: Double = 14.15,
+        dailyCdiRatePercent: Double = 0.050788,
         isBusinessDay: Boolean = true
     ): Double {
-        if (balance <= 0 || cdiRatePercentage <= 0 || !isBusinessDay) return 0.0
-        val dailyCdi = Math.pow(1.0 + (annualCdiRate / 100.0), 1.0 / 252.0) - 1.0
-        val dailyRate = dailyCdi * (cdiRatePercentage / 100.0)
-        val raw = balance * dailyRate
-        return Math.round(raw * 100.0) / 100.0
+        if (balance <= 0.0 || cdiRatePercentage <= 0.0 || !isBusinessDay) return 0.0
+        val dailyCdiDecimal = dailyCdiRatePercent / 100.0
+        val dailyAccountRate = dailyCdiDecimal * (cdiRatePercentage / 100.0)
+        val grossDaily = balance * dailyAccountRate
+        val netDaily = grossDaily * (1.0 - (taxRatePercentage / 100.0))
+        return Math.round(netDaily * 100.0) / 100.0
     }
 }
 
@@ -216,4 +222,13 @@ fun isInvoicePaidForCard(
     val allPurchasesPaid = cardPurchases.isNotEmpty() && cardPurchases.all { it.status == PaymentStatus.PAID }
     return (hasPaymentReceipt || allPurchasesPaid) && cardPurchases.isNotEmpty()
 }
+
+data class AuditLogEntry(
+    val id: String = UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val dateTimeStr: String = "",
+    val action: String = "",
+    val summary: String = "",
+    val details: String = ""
+)
 

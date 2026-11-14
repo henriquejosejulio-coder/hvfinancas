@@ -267,23 +267,23 @@ fun DevTestDialog(
 
                                 Spacer(modifier = Modifier.height(6.dp))
 
-                                // Botão: Gmail Mercado Pago Pix (Uber R$ 6,94)
+                                // Botão: Mercado Pago App Pix (Uber R$ 6,94)
                                 OutlinedButton(
                                     onClick = {
                                         val ok = BankNotificationService.simulateNotification(
                                             context,
-                                            "com.google.android.gm",
+                                            "com.mercadopago.wallet",
                                             "Mercado Pago",
-                                            "Seu Pix de R$ 6,94 foi enviado Sexta-feira, 23 de outubro de 2026, às 21:39:57. UBER DO BRASIL TECNOLOGIA LTDA. CPF/CNPJ: xx.x95.646/0001-xx ADYEN DO BRASIL INSTITUICAO DE PAGAMENTO LTDA. Agência: 0001"
+                                            "Você transferiu um Pix de R$ 6,94 para UBER DO BRASIL TECNOLOGIA LTDA"
                                         )
                                         if (ok) {
-                                            Toast.makeText(context, "✅ Pix Gmail Mercado Pago (R$ 6,94 Uber) capturado!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "✅ Pix Mercado Pago (R$ 6,94 Uber) capturado!", Toast.LENGTH_SHORT).show()
                                             refreshLogs()
                                         }
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("📧 Gmail / MP: Pix R$ 6,94 (Uber)", fontSize = 12.sp)
+                                    Text("📱 Mercado Pago: Pix R$ 6,94 (Uber)", fontSize = 12.sp)
                                 }
 
                                 Spacer(modifier = Modifier.height(6.dp))

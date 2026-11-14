@@ -26,6 +26,7 @@ import com.example.mobillsfinancas.data.CategoryItem
 import com.example.mobillsfinancas.data.PaymentStatus
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
+import com.example.mobillsfinancas.data.isInvoicePayment
 import com.example.mobillsfinancas.theme.ExpenseRed
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
@@ -800,7 +801,7 @@ fun CategoryBreakdown(
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                if (!item.includeInBudget) {
+                                                if (!item.includeInBudget && !isInvoicePayment(item)) {
                                                     Surface(
                                                         shape = RoundedCornerShape(6.dp),
                                                         color = Color(0xFF64748B).copy(alpha = 0.15f)
@@ -810,7 +811,9 @@ fun CategoryBreakdown(
                                                             fontSize = 9.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = Color(0xFF64748B),
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                            maxLines = 1,
+                                                            softWrap = false
                                                         )
                                                     }
                                                 }
@@ -823,7 +826,9 @@ fun CategoryBreakdown(
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = if (item.status == PaymentStatus.PAID) IncomeGreen else Color(0xFFD97706),
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        maxLines = 1,
+                                                        softWrap = false
                                                     )
                                                 }
                                             }

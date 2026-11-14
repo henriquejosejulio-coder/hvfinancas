@@ -43,6 +43,8 @@ fun AccountsSection(
     onDirectBalanceUpdate: ((AccountItem, Double) -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val cdiData = remember { com.example.mobillsfinancas.services.BcbCdiService.getCachedCdiRate(context) }
     var quickReorderAccount by remember { mutableStateOf<AccountItem?>(null) }
     var showFullReorderDialog by remember { mutableStateOf(false) }
     var showYieldDialog by remember { mutableStateOf(false) }
@@ -240,8 +242,8 @@ fun AccountsSection(
                         )
                         if (acc.cdiRatePercentage > 0.0 && acc.balance > 0.0) {
                             Spacer(modifier = Modifier.height(2.dp))
-                            val estMonthly = acc.calculateMonthlyYield()
-                            val estDaily = acc.calculateDailyYield()
+                            val estMonthly = acc.calculateMonthlyYield(dailyCdiRatePercent = cdiData.dailyRatePercent)
+                            val estDaily = acc.calculateDailyYield(dailyCdiRatePercent = cdiData.dailyRatePercent)
                             Text(
                                 text = "📈 Rende ~${Formatters.formatMoney(estMonthly, hideValues)}/mês",
                                 style = MaterialTheme.typography.labelSmall,
@@ -456,6 +458,7 @@ fun AccountsSection(
             onDirectBalanceUpdate = { acc, newBal ->
                 onDirectBalanceUpdate?.invoke(acc, newBal)
             },
+            cdiData = cdiData,
             onDismiss = { showYieldDialog = false }
         )
     }
