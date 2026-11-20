@@ -409,4 +409,64 @@ class BudgetAndTotalsTest {
         // DEVE bater exatamente com os R$ 367,75 da conta de gastos Mercado Pago 2
         assertEquals(367.75, freeToSpend, 0.01)
     }
+
+    @Test
+    fun testCalculateFreeToSpendWithDeficit() {
+        // Cenário em que despesas e tetos excedem as receitas (sem conta padrão fixa):
+        // Receitas: R$ 5.302,22
+        // Despesas comprometidas: R$ 4.499,62
+        // Tetos reservados (Mercado R$ 634,18 + Transporte R$ 170,00): R$ 804,18
+        // Gastos fora do teto: R$ 15,95 (Uber)
+        // totalCommitted = 4.499,62 + 804,18 + 15,95 = 5.319,75
+        // O valor livre para gastar comigo reflete com transparência matemática a sobra/déficit do mês:
+        // freeToSpend = 5.302,22 - 5.319,75 = -17,53
+        val freeToSpend = com.example.mobillsfinancas.data.FinanceRepository.calculateFreeToSpend(
+            baseIncome = 5302.22,
+            totalExpense = 4499.62,
+            unspentBudgets = 804.18,
+            extraExpensesOutOfBudget = 15.95,
+            otherAccountsBalance = 242.13,
+            transfersToOtherAccounts = 206.59,
+            spendingAccountBalance = null
+        )
+
+        assertEquals(-17.53, freeToSpend, 0.001)
+    }
+
+    @Test
+    fun testCalculateFreeToSpendWithUntransferredSalarySurplus() {
+        // Cenário no início do mês (planejamento sem conta padrão):
+        // Receitas: R$ 5.000,00
+        // Despesas: R$ 3.000,00
+        // Tetos: R$ 1.000,00 -> total comprometido = 4.000,00 -> salarySurplus = 1.000,00
+        // Sobra teórica do mês no orçamento = R$ 1.000,00
+        val freeToSpend = com.example.mobillsfinancas.data.FinanceRepository.calculateFreeToSpend(
+            baseIncome = 5000.0,
+            totalExpense = 3000.0,
+            unspentBudgets = 1000.0,
+            extraExpensesOutOfBudget = 0.0,
+            otherAccountsBalance = 300.0,
+            transfersToOtherAccounts = 300.0,
+            spendingAccountBalance = null
+        )
+
+        assertEquals(1000.0, freeToSpend, 0.001)
+    }
+
+    @Test
+    fun testCalculateFreeToSpendWithDesignatedSpendingAccount() {
+        // Quando o usuário define uma Conta Padrão (ex: Mercado Pago 2 com saldo R$ 279,81)
+        // O valor livre para gastar comigo no mês atual DEVE bater exatamente com o saldo real da conta padrão!
+        val freeToSpend = com.example.mobillsfinancas.data.FinanceRepository.calculateFreeToSpend(
+            baseIncome = 6566.29,
+            totalExpense = 4937.20,
+            unspentBudgets = 513.55,
+            extraExpensesOutOfBudget = 0.0,
+            otherAccountsBalance = 792.50,
+            transfersToOtherAccounts = 316.06,
+            spendingAccountBalance = 279.81
+        )
+
+        assertEquals(279.81, freeToSpend, 0.001)
+    }
 }

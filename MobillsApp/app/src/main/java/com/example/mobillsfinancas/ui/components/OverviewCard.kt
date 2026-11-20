@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.mobillsfinancas.data.FinanceRepository
 import com.example.mobillsfinancas.data.TransactionItem
 import com.example.mobillsfinancas.data.TransactionType
 import com.example.mobillsfinancas.data.isInvoicePayment
@@ -35,6 +36,11 @@ fun OverviewCard(
     otherAccountsBalance: Double = 0.0,
     otherAccountsLabel: String = "",
     transfersToOtherAccounts: Double = 0.0,
+    spendingAccountBalance: Double? = null,
+    spendingAccountName: String? = null,
+    primaryAccountBalance: Double? = null,
+    primaryAccountName: String? = null,
+    totalAvailableInAccounts: Double? = null,
     onAdjustBalance: (() -> Unit)? = null
 ) {
     var showBreakdown by remember { mutableStateOf(false) }
@@ -58,24 +64,16 @@ fun OverviewCard(
     // Sobra líquida real gerada pela renda do mês após abater todas as despesas comprometidas e extras fora do teto
     val salarySurplus = baseIncome - totalSpentAndCommitted
 
-    // Evita contagem dupla de transferências internas:
-    // Se o usuário transferiu parte da sobra do salário da conta principal para outra conta corrente (ex: Mercado Pago),
-    // esse valor transferido já está dentro de baseIncome E também dentro do saldo da outra conta.
-    // O abatimento é no máximo a sobra salarial real que existia para ser transferida.
-    val duplicateTransferAmount = if (salarySurplus > 0.0) {
-        minOf(transfersToOtherAccounts, salarySurplus)
-    } else {
-        0.0
-    }
-
-    // Saldo externo real em outras contas (descontando o que veio de transferência da sobra salarial)
-    val netOtherAccountsBalance = maxOf(0.0, otherAccountsBalance - duplicateTransferAmount)
-
-    // Renda total considerada: receitas do mês + saldo externo disponível em outras contas correntes
-    val effectiveIncome = baseIncome + netOtherAccountsBalance
-
-    // Disponível Real para Gastar Comigo = Receita Efetiva Total - Total Geral de Saídas e Reservas
-    val freeToSpend = effectiveIncome - totalSpentAndCommitted
+    // Disponível Real para Gastar Comigo calculado de forma reconciliada e imune a distorções
+    val freeToSpend = FinanceRepository.calculateFreeToSpend(
+        baseIncome = baseIncome,
+        totalExpense = totalExpense,
+        unspentBudgets = unspentBudgets,
+        extraExpensesOutOfBudget = extraExpensesOutOfBudget,
+        otherAccountsBalance = otherAccountsBalance,
+        transfersToOtherAccounts = transfersToOtherAccounts,
+        spendingAccountBalance = spendingAccountBalance
+    )
 
     Card(
         modifier = Modifier
@@ -109,7 +107,9 @@ fun OverviewCard(
                     }
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text = if (unspentBudgets > 0) {
+                        text = if (spendingAccountBalance != null && !spendingAccountName.isNullOrBlank()) {
+                            "Disponível na conta padrão ($spendingAccountName)"
+                        } else if (unspentBudgets > 0) {
                             "Já garantindo o teto de R$ ${Formatters.formatCurrencyPlain(unspentBudgets)} do mercado e contas fixas"
                         } else {
                             "Dinheiro livre para você gastar como quiser"
@@ -175,7 +175,7 @@ fun OverviewCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Barra proporcional de Despesas vs Receitas
-            val totalBase = maxOf(effectiveIncome, totalSpentAndCommitted, 1.0)
+            val totalBase = maxOf(baseIncome, totalSpentAndCommitted, 1.0)
             val expenseRatio = (totalSpentAndCommitted / totalBase).toFloat().coerceIn(0f, 1f)
 
             Box(
@@ -249,7 +249,7 @@ fun OverviewCard(
                     Column {
                         Text("Total Despesas", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = Formatters.formatMoney(totalCommitted, hideValues),
+                            text = Formatters.formatMoney(totalSpentAndCommitted, hideValues),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = ExpenseRed
@@ -280,62 +280,44 @@ fun OverviewCard(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Como o seu dinheiro está planejado:",
+                    text = "Detalhamento do Orçamento:",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("💵 Receitas do mês", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("+ " + Formatters.formatMoney(baseIncome, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = IncomeGreen)
                 }
 
-                if (netOtherAccountsBalance > 0.0) {
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🏦 Saldo que já havia em conta", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("+ " + Formatters.formatMoney(netOtherAccountsBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
-                    }
-                }
-
-                val cofrinhoAmt = items.filter { it.type == TransactionType.TRANSFER && it.includeInBudget }.sumOf { it.amount }
-                val fixasECartoes = totalExpense - cofrinhoAmt
-
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("📋 Contas fixas e faturas de cartão", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("- " + Formatters.formatMoney(fixasECartoes, hideValues), fontSize = 11.sp, color = ExpenseRed)
-                }
-
-                if (cofrinhoAmt > 0) {
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🐖 Cofrinho / Reserva (Guardado)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("- " + Formatters.formatMoney(cofrinhoAmt, hideValues), fontSize = 11.sp, color = Color(0xFF0284C7))
-                    }
+                    Text("🔻 Despesas lançadas no mês", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("- " + Formatters.formatMoney(totalExpense, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
                 }
 
                 if (unspentBudgets > 0) {
-                    Spacer(modifier = Modifier.height(3.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🛒 Mercado / Tetos Reservados", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("- " + Formatters.formatMoney(unspentBudgets, hideValues), fontSize = 11.sp, color = Color(0xFFFF9800))
+                        Text("🛒 Tetos reservados (mercado/contas)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("- " + Formatters.formatMoney(unspentBudgets, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFF9800))
                     }
                 }
 
-                if (extraExpensesOutOfBudget > 0.0) {
-                    Spacer(modifier = Modifier.height(3.dp))
+                if (extraExpensesOutOfBudget > 0) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("🏷️ Gastos fora do teto", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("- " + Formatters.formatMoney(extraExpensesOutOfBudget, hideValues), fontSize = 11.sp, color = ExpenseRed)
+                        Text("⚡ Gastos avulsos fora do orçamento", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("- " + Formatters.formatMoney(extraExpensesOutOfBudget, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("📋 Total de Saídas e Reservas", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
                     Text("- " + Formatters.formatMoney(totalSpentAndCommitted, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ExpenseRed)
@@ -344,9 +326,50 @@ fun OverviewCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Spacer(modifier = Modifier.height(6.dp))
+
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("🎯 SOBROU LIVRE", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text("📊 Sobra Teórica do Mês (Orçamento)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(Formatters.formatMoney(salarySurplus, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (salarySurplus >= 0) MobillsGreenPrimary else ExpenseRed)
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("🎯 SOBROU PARA GASTAR COMIGO", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
                     Text(Formatters.formatMoney(freeToSpend, hideValues), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = if (freeToSpend >= 0) MobillsGreenPrimary else ExpenseRed)
+                }
+
+                if (totalAvailableInAccounts != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Saldo Físico nos Bancos:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("🏦 Disponível em contas correntes", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Formatters.formatMoney(totalAvailableInAccounts, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MobillsGreenPrimary)
+                    }
+                    if (spendingAccountBalance != null && !spendingAccountName.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("💳 Na Conta Padrão ($spendingAccountName)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(Formatters.formatMoney(spendingAccountBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MobillsGreenPrimary)
+                        }
+                    }
+                    if (primaryAccountBalance != null && !primaryAccountName.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("🏛️ Na conta principal ($primaryAccountName)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(Formatters.formatMoney(primaryAccountBalance, hideValues), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
                 }
             }
         }

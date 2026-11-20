@@ -84,10 +84,18 @@ fun TransactionItemView(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
+                val displayTitle = remember(item.description, item.category, item.accountOrCardName) {
+                    com.example.mobillsfinancas.utils.TransactionDescriptionCleaner.cleanDescription(
+                        item.description,
+                        item.category,
+                        item.accountOrCardName
+                    )
+                }
+
                 // Descrição, Categoria e Conta/Cartão
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = item.description,
+                        text = displayTitle,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,

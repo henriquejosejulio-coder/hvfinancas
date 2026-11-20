@@ -146,27 +146,25 @@ object AppUpdateManager {
             }
 
             val fileLength = connection.contentLength
-            val inputStream = connection.inputStream
-            val outputStream = FileOutputStream(apkFile)
+            connection.inputStream.use { inputStream ->
+                FileOutputStream(apkFile).use { outputStream ->
+                    val buffer = ByteArray(8192)
+                    var totalBytesRead = 0L
+                    var bytesRead: Int
 
-            val buffer = ByteArray(8192)
-            var totalBytesRead = 0L
-            var bytesRead: Int
-
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                outputStream.write(buffer, 0, bytesRead)
-                totalBytesRead += bytesRead
-                if (fileLength > 0) {
-                    val progress = ((totalBytesRead * 100) / fileLength).toInt()
-                    withContext(Dispatchers.Main) {
-                        onProgress(progress)
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        outputStream.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                        if (fileLength > 0) {
+                            val progress = ((totalBytesRead * 100) / fileLength).toInt()
+                            withContext(Dispatchers.Main) {
+                                onProgress(progress)
+                            }
+                        }
                     }
+                    outputStream.flush()
                 }
             }
-
-            outputStream.flush()
-            outputStream.close()
-            inputStream.close()
 
             withContext(Dispatchers.Main) {
                 installApk(context, apkFile)

@@ -27,15 +27,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Reconecta o serviço de notificações caso o Android tenha desvinculado após atualização do APK
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        try {
-            val componentName = ComponentName(this, BankNotificationService::class.java)
-            NotificationListenerService.requestRebind(componentName)
-            Log.d("MainActivity", "requestRebind executado para BankNotificationService")
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    // Reconecta o serviço de notificações caso o Android/MIUI/HyperOS tenha desvinculado após atualização do APK
+    try {
+        BankNotificationService.rebindService(this)
+    } catch (e: Exception) {
+        e.printStackTrace()
     }
 
     // Solicita execução em segundo plano sem restrições de bateria
@@ -79,10 +75,11 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
       super.onResume()
       try {
+          BankNotificationService.rebindService(this)
           com.example.mobillsfinancas.services.InvoiceAlertManager.checkAndNotifyInvoices(applicationContext)
           com.example.mobillsfinancas.data.FinanceRepository.getInstance(applicationContext).syncCdiRateFromBcbAsync()
       } catch (e: Exception) {
-          Log.e("MainActivity", "Erro ao checar faturas no onResume", e)
+          Log.e("MainActivity", "Erro ao executar tarefas no onResume", e)
       }
   }
 

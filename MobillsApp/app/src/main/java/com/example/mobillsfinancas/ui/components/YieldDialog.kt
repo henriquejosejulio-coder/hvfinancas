@@ -17,9 +17,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.theme.IncomeGreen
 import com.example.mobillsfinancas.theme.MobillsGreenPrimary
@@ -105,12 +107,15 @@ fun YieldDialog(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.92f)
-                .padding(vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
@@ -125,7 +130,10 @@ fun YieldDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("📈", fontSize = 24.sp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
@@ -142,7 +150,7 @@ fun YieldDialog(
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "📊 CDI Oficial BCB: ${String.format(java.util.Locale.US, "%.4f", currentCdiData.dailyRatePercent)}% a.d. (~${String.format(java.util.Locale.US, "%.2f", currentCdiData.annualRatePercent)}% a.a.) • Líquido (-22,5% IR)",
+                                    text = "📊 CDI BCB: ${String.format(java.util.Locale.US, "%.4f", currentCdiData.dailyRatePercent)}% a.d. (~${String.format(java.util.Locale.US, "%.2f", currentCdiData.annualRatePercent)}% a.a.) • Líquido (-22,5% IR)",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MobillsGreenPrimary
@@ -258,10 +266,15 @@ fun YieldDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(end = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(28.dp)
+                                                    .size(32.dp)
                                                     .clip(CircleShape)
                                                     .background(Color(acc.colorHex).copy(alpha = 0.15f)),
                                                 contentAlignment = Alignment.Center
@@ -273,35 +286,45 @@ fun YieldDialog(
                                                 Text(
                                                     text = acc.name,
                                                     fontWeight = FontWeight.Bold,
-                                                    style = MaterialTheme.typography.bodyMedium
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                                 val estMonthly = acc.calculateMonthlyYield(dailyCdiRatePercent = currentCdiData.dailyRatePercent)
                                                 Text(
-                                                    text = "${if (acc.cdiRatePercentage % 1.0 == 0.0) acc.cdiRatePercentage.toInt() else acc.cdiRatePercentage}% CDI • ~${Formatters.formatMoney(estMonthly)}/mês (Líquido)",
+                                                    text = "${if (acc.cdiRatePercentage % 1.0 == 0.0) acc.cdiRatePercentage.toInt() else acc.cdiRatePercentage}% CDI • ~${Formatters.formatMoney(estMonthly)}/mês",
                                                     fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
 
-                                        // Saldo Atual
+                                        // Saldo Atual (garante largura e nunca quebra linha)
                                         Column(horizontalAlignment = Alignment.End) {
                                             Text(
                                                 text = "Saldo atual",
                                                 fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             Text(
                                                 text = Formatters.formatMoney(acc.balance),
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
+                                                fontSize = 14.sp,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             if (onDirectBalanceUpdate != null) {
                                                 Text(
                                                     text = "✏️ Ajustar saldo",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
                                                     color = MobillsGreenPrimary,
+                                                    maxLines = 1,
+                                                    softWrap = false,
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(4.dp))
                                                         .clickable {
@@ -325,12 +348,12 @@ fun YieldDialog(
                                         OutlinedTextField(
                                             value = currentInput,
                                             onValueChange = { val clean = it.filter { c -> c.isDigit() || c == '.' || c == ',' }; yieldInputs[acc.id] = clean },
-                                            label = { Text("Rendimento Hoje (R$)", fontSize = 11.sp) },
+                                            label = { Text("Rendimento Hoje", fontSize = 11.sp) },
                                             placeholder = { Text("0.05") },
                                             leadingIcon = { Text("+ R$", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = IncomeGreen) },
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                             singleLine = true,
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier.weight(1.1f),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                                                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -344,19 +367,23 @@ fun YieldDialog(
                                         )
 
                                         Column(
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier.weight(0.9f),
                                             horizontalAlignment = Alignment.End
                                         ) {
                                             Text(
                                                 text = "Novo Saldo:",
                                                 fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                             Text(
                                                 text = Formatters.formatMoney(newBalance),
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 14.sp,
-                                                color = MobillsGreenPrimary
+                                                color = MobillsGreenPrimary,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }

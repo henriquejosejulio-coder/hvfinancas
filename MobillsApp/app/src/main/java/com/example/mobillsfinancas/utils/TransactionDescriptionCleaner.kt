@@ -28,13 +28,24 @@ object TransactionDescriptionCleaner {
         "vital", "junior", "neto", "filho", "carlos", "eduardo", "lucas", "gabriel", "matheus",
         "felipe", "guilherme", "pedro", "joao", "marcos", "vinicius", "rafael", "bruno",
         "ana", "maria", "julia", "beatriz", "larissa", "camila", "fernanda", "amanda", "leticia",
-        "posto", "cerveja", "distribuidora", "auto", "veredas", "exp",
+        "posto", "cerveja", "distribuidora", "auto", "veredas", "exp", "padaria", "farmacia",
+        "drogaria", "mercado", "supermercado", "restaurante", "lanches", "burger", "pizzaria",
+        "lojas", "americanas", "carrefour", "extra", "pao", "acucar", "magazine", "luiza",
         "de", "da", "do", "dos", "das"
     )
 
     fun cleanDescription(rawDesc: String, category: String = "", accountName: String = ""): String {
         var s = rawDesc.trim()
         if (s.isEmpty()) return s
+
+        // 0. Remove sufixos comuns de notificações bancárias (ex: " com Saldo", " via Pix", " R$ 11", " R")
+        s = s.replace(Regex("(?i)\\s+com\\s+saldo$"), "")
+             .replace(Regex("(?i)\\s+via\\s+pix$"), "")
+             .replace(Regex("(?i)\\s+no\\s+cr[eé]dito$"), "")
+             .replace(Regex("(?i)\\s+no\\s+d[eé]bito$"), "")
+             .replace(Regex("(?i)\\s+R\\$?$"), "")
+             .replace(Regex("\\$$"), "")
+             .trim()
 
         // 1. Limpa prefixo redundante de "Transferência: " se já tiver seta indicativa
         val transferPrefixRegex = Regex("^transfer[eê]ncia:\\s*", RegexOption.IGNORE_CASE)
@@ -45,11 +56,12 @@ object TransactionDescriptionCleaner {
             }
         }
 
-        // 2. Remove frases conversacionais comuns de notificações de bancos
+        // 2. Remove frases conversacionais comuns de notificações de bancos e prefixos de maquininhas/gateways
         s = s.replace(Regex("^(?:você|voce)\\s+pagou\\s+(?:a\\s+|em\\s+|para\\s+)?", RegexOption.IGNORE_CASE), "")
              .replace(Regex("^(?:você|voce)\\s+transferiu\\s+(?:para\\s+|a\\s+)?", RegexOption.IGNORE_CASE), "")
              .replace(Regex("^(?:você|voce)\\s+recebeu\\s+(?:de\\s+|um\\s+pix\\s+de\\s+)?", RegexOption.IGNORE_CASE), "")
-             .replace(Regex("^mp\\s*[*_\\s]\\s*", RegexOption.IGNORE_CASE), "")
+             .replace(Regex("^(?:você|voce)\\s+realizou\\s+(?:um\\s+pix\\s+(?:para|de)\\s+)?", RegexOption.IGNORE_CASE), "")
+             .replace(Regex("^(?:mp|pag|ifd|ifood|uber|dl|mec|paypal|sumup|stone|ton|cielo|getnet|rede|redecard|picpay)\\s*[*_\\s\\-]\\s*", RegexOption.IGNORE_CASE), "")
              .trim()
 
         // 3. Trata títulos genéricos que foram capturados em vez do estabelecimento real
@@ -60,8 +72,7 @@ object TransactionDescriptionCleaner {
             return "Pix Enviado"
         }
 
-        val isGenericAccountName = (accountName.isNotBlank() && lower == accountName.trim().lowercase(Locale.ROOT)) ||
-                lower == "conta inter" || lower == "mercado pago" || lower == "mercado pago 2" || lower == "sofisa direto"
+        val isGenericAccountName = accountName.isNotBlank() && lower == accountName.trim().lowercase(Locale.ROOT)
 
         if (isGenericAccountName) {
             val catTrimmed = category.trim()
@@ -79,8 +90,8 @@ object TransactionDescriptionCleaner {
             if (split.isNotBlank()) {
                 s = split
             }
-        } else if (Regex("^[a-z]{8,}$").matches(s)) {
-            // Palavra longa totalmente minúscula sem espaço
+        } else if (Regex("(?i)^[a-zÀ-öø-ÿ]{8,}$").matches(s)) {
+            // Palavra longa aglutinada sem espaço (maiúscula ou minúscula, ex: JOSEMIGUELDEPAULA)
             val split = splitConcatenatedName(s)
             if (split.isNotBlank()) {
                 s = split

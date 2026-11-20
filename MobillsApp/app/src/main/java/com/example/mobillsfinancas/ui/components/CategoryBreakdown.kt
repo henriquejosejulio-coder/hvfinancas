@@ -114,57 +114,48 @@ fun CategoryBreakdown(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
                         text = if (filterMode == 0) "🎯 Tetos & Metas de Gastos" else "📊 Relatório Geral de Gastos",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = if (displayCategories.isEmpty()) {
                             "Defina limites mensais para suas categorias"
                         } else if (filterMode == 0) {
-                            "Despesas computadas no teto mensal"
+                            if (totalSpentExcluded > 0) {
+                                "Despesas no teto (+ ${Formatters.formatMoney(totalSpentExcluded, hideValues)} fora)"
+                            } else {
+                                "Despesas computadas no teto mensal"
+                            }
                         } else {
                             "100% dos gastos reais do mês"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onSetBudgetLimit != null) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MobillsGreenPrimary.copy(alpha = 0.12f),
-                            modifier = Modifier
-                                .clickable { showChooseCategoryDialog = true }
-                                .padding(end = if (filterMode == 0 && totalSpentExcluded > 0) 6.dp else 0.dp)
-                        ) {
-                            Text(
-                                text = "➕ Definir Teto",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MobillsGreenPrimary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
-                    }
-
-                    if (filterMode == 0 && totalSpentExcluded > 0) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF64748B).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "+ ${Formatters.formatMoney(totalSpentExcluded, hideValues)} fora",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF64748B)
-                            )
-                        }
+                if (onSetBudgetLimit != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MobillsGreenPrimary.copy(alpha = 0.12f),
+                        modifier = Modifier.clickable { showChooseCategoryDialog = true }
+                    ) {
+                        Text(
+                            text = "➕ Definir Teto",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MobillsGreenPrimary,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
                     }
                 }
             }

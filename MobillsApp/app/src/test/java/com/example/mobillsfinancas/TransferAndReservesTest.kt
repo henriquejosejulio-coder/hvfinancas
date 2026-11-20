@@ -182,4 +182,93 @@ class TransferAndReservesTest {
         assertEquals(inter.id, resolvedFrom?.id)
         assertEquals(cofrinho.id, resolvedTo?.id)
     }
+
+    @Test
+    fun testResgateFromPiggyBankOffsetsReserveAllocation() {
+        val inter = AccountItem(id = "acc_inter", name = "Conta Inter", balance = 5000.0, includeInOverallBalance = true)
+        val cofrinho = AccountItem(id = "acc_cofrinho", name = "Cofrinho MP 2", balance = 0.0, includeInOverallBalance = false)
+        val mp2 = AccountItem(id = "acc_mp2", name = "Mercado Pago 2", balance = 0.0, includeInOverallBalance = true)
+        val accounts = listOf(inter, cofrinho, mp2)
+
+        // 1. Guarda R$ 2.000 no Cofrinho
+        val saveTx = TransactionItem(
+            id = "trf_save",
+            description = "Transferência: Conta Inter ➔ Cofrinho MP 2",
+            amount = 2000.0,
+            type = TransactionType.TRANSFER,
+            status = PaymentStatus.PAID,
+            monthYear = "NOVEMBRO 2026",
+            note = "fromAccountId:${inter.id}|toAccountId:${cofrinho.id}"
+        )
+
+        // 2. Resgata R$ 70 do Cofrinho para o Mercado Pago 2 para pagar Caio Dentista
+        val resgateTx = TransactionItem(
+            id = "trf_resgate",
+            description = "Transferência: Cofrinho MP 2 ➔ Mercado Pago 2",
+            amount = 70.0,
+            type = TransactionType.TRANSFER,
+            category = "Resgate Cofrinho",
+            status = PaymentStatus.PAID,
+            monthYear = "NOVEMBRO 2026",
+            note = "fromAccountId:${cofrinho.id}|toAccountId:${mp2.id}"
+        )
+
+        // 3. Despesa de R$ 70 (Caio Dentista)
+        val expenseTx = TransactionItem(
+            id = "exp_dentista",
+            description = "Caio Dentista",
+            amount = 70.0,
+            type = TransactionType.EXPENSE,
+            status = PaymentStatus.PAID,
+            monthYear = "NOVEMBRO 2026",
+            includeInBudget = true
+        )
+
+        // Simula cálculo de recalculateAllMonths com offset de resgate
+        var reserveNet = 0.0
+        var totalExp = 0.0
+        val items = listOf(saveTx, resgateTx, expenseTx)
+
+        for (item in items) {
+            if (item.type == TransactionType.EXPENSE && item.includeInBudget) {
+                totalExp += item.amount
+            } else if (item.type == TransactionType.TRANSFER) {
+                val (fromAcc, toAcc) = com.example.mobillsfinancas.data.FinanceRepository.resolveTransferAccounts(item, accounts)
+                val isToReserve = fromAcc?.includeInOverallBalance == true && toAcc?.includeInOverallBalance == false
+                val isFromReserve = fromAcc?.includeInOverallBalance == false && toAcc?.includeInOverallBalance == true
+                if (isToReserve) reserveNet += item.amount
+                if (isFromReserve) reserveNet -= item.amount
+            }
+        }
+        if (reserveNet >= 0.0) totalExp += reserveNet
+
+        // Total comprometido deve ser exatamente R$ 2.000,00 (1930 no cofrinho + 70 no dentista)
+        // e NUNCA R$ 2.070,00 (sem dupla cobrança)!
+        assertEquals(2000.0, totalExp, 0.001)
+    }
+
+    @Test
+    fun testDestinationAccountMatchingWithTrailingNumber() {
+        val inter = AccountItem(id = "acc_inter", name = "Conta Inter", balance = 500.0, includeInOverallBalance = true)
+        val mp2 = AccountItem(id = "acc_mp2", name = "Mercado Pago 2", balance = 200.0, includeInOverallBalance = true)
+        val accounts = listOf(inter, mp2)
+
+        val notificationText = "Você transferiu R$ 50,00 para Mercado Pago com sucesso."
+        val lowerText = notificationText.lowercase()
+
+        // Verifica algoritmo aprimorado de match
+        var matchedAcc: AccountItem? = null
+        for (acc in accounts) {
+            if (acc.id == inter.id) continue
+            val cleanName = acc.name.lowercase().trim()
+            val baseName = cleanName.replace(Regex("\\s*\\d+$"), "").trim()
+            if (lowerText.contains(cleanName) || lowerText.contains(baseName)) {
+                matchedAcc = acc
+                break
+            }
+        }
+
+        assertEquals("acc_mp2", matchedAcc?.id)
+        assertEquals("Mercado Pago 2", matchedAcc?.name)
+    }
 }

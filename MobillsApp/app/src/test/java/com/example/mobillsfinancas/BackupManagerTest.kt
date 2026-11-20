@@ -103,4 +103,33 @@ class BackupManagerTest {
         BackupManager.atomicWrite(file, newContent)
         assertEquals(newContent, file.readText())
     }
+
+    @Test
+    fun testAuditLogPreservedInBackupJson() {
+        val json = """
+            {
+              "categories": [],
+              "accounts": [],
+              "months": [],
+              "audit_log": [
+                {
+                  "id": "audit_1",
+                  "timestamp": 1732057200000,
+                  "dateTimeStr": "19/11/2026 21:00:00",
+                  "action": "TRANSFERENCIA",
+                  "summary": "Transferência realizada: R$ 50,00",
+                  "details": "from=acc_1, to=acc_2"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val rootObj = org.json.JSONObject(json)
+        assertTrue(rootObj.has("audit_log"))
+        val arr = rootObj.getJSONArray("audit_log")
+        assertEquals(1, arr.length())
+        val entry = arr.getJSONObject(0)
+        assertEquals("TRANSFERENCIA", entry.getString("action"))
+        assertEquals("Transferência realizada: R$ 50,00", entry.getString("summary"))
+    }
 }

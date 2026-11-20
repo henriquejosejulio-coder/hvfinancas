@@ -92,4 +92,24 @@ class AuditFilterTest {
 
         assertEquals(2, filtered.size)
     }
+
+    @Test
+    fun testFilterByCustomDateRange() {
+        val startMs = com.example.mobillsfinancas.ui.screens.parseDateToStartOfDayMs("10/11/2026")!!
+        val endMs = com.example.mobillsfinancas.ui.screens.parseDateToEndOfDayMs("15/11/2026")!!
+
+        val logBefore = AuditLogEntry(id = "1", timestamp = com.example.mobillsfinancas.ui.screens.parseDateToStartOfDayMs("09/11/2026")!!, summary = "Antes")
+        val logStart = AuditLogEntry(id = "2", timestamp = startMs + 1000L, summary = "No inicio")
+        val logMiddle = AuditLogEntry(id = "3", timestamp = com.example.mobillsfinancas.ui.screens.parseDateToStartOfDayMs("12/11/2026")!! + 50000L, summary = "No meio")
+        val logEnd = AuditLogEntry(id = "4", timestamp = endMs - 1000L, summary = "No fim")
+        val logAfter = AuditLogEntry(id = "5", timestamp = com.example.mobillsfinancas.ui.screens.parseDateToEndOfDayMs("16/11/2026")!!, summary = "Depois")
+
+        val list = listOf(logBefore, logStart, logMiddle, logEnd, logAfter)
+        val filtered = list.filter { it.timestamp in startMs..endMs }
+
+        assertEquals(3, filtered.size)
+        assertEquals("No inicio", filtered[0].summary)
+        assertEquals("No meio", filtered[1].summary)
+        assertEquals("No fim", filtered[2].summary)
+    }
 }

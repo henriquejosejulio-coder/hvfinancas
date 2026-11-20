@@ -41,9 +41,11 @@ object BankRegistry {
                 "br.com.bancointer",
                 "com.bancointer",
                 "br.com.inter",
-                "br.com.inter.app"
+                "br.com.inter.app",
+                "br.com.inter.cdpro",
+                "co.inter"
             ),
-            keywords = listOf("banco inter", "intermedium", "conta inter", "cartão inter", "cartao inter")
+            keywords = listOf("banco inter", "intermedium", "conta inter", "cartão inter", "cartao inter", "inter")
         ),
         SupportedBank(
             key = "c6",
@@ -206,11 +208,22 @@ object BankRegistry {
         if (pkg.contains("sofisa")) return ALL_BANKS.find { it.key == "sofisa" }
         if (pkg.contains("mercadopago") || pkg.contains("mercadolivre")) return ALL_BANKS.find { it.key == "mercadopago" }
         if (pkg.contains("nubank")) return ALL_BANKS.find { it.key == "nubank" }
-        if (pkg.contains("bancointer") || pkg.contains("intermedium")) return ALL_BANKS.find { it.key == "inter" }
-        if (pkg.contains("c6bank")) return ALL_BANKS.find { it.key == "c6" }
+        if (pkg.contains("bancointer") || pkg.contains("intermedium") || (pkg.contains("inter") && !pkg.contains("internet") && !pkg.contains("printer"))) return ALL_BANKS.find { it.key == "inter" }
+        if (pkg.contains("c6bank") || pkg.contains(".c6")) return ALL_BANKS.find { it.key == "c6" }
         if (pkg.contains("picpay")) return ALL_BANKS.find { it.key == "picpay" }
-        if (pkg.contains("willbank")) return ALL_BANKS.find { it.key == "will" }
+        if (pkg.contains("willbank") || pkg.contains(".will")) return ALL_BANKS.find { it.key == "will" }
         if (pkg.contains("pagbank") || pkg.contains("pagseguro")) return ALL_BANKS.find { it.key == "pagbank" }
+        if (pkg.contains("itau") || pkg.contains("iti")) return ALL_BANKS.find { it.key == "itau" }
+        if (pkg.contains("next")) return ALL_BANKS.find { it.key == "next" }
+        if (pkg.contains("bradesco")) return ALL_BANKS.find { it.key == "bradesco" }
+        if (pkg.contains("santander")) return ALL_BANKS.find { it.key == "santander" }
+        if (pkg.contains("caixa")) return ALL_BANKS.find { it.key == "caixa" }
+        if (pkg.contains("bb.android") || pkg.contains("bancodobrasil")) return ALL_BANKS.find { it.key == "bb" }
+        if (pkg.contains("neon")) return ALL_BANKS.find { it.key == "neon" }
+        if (pkg.contains("sicoob")) return ALL_BANKS.find { it.key == "sicoob" }
+        if (pkg.contains("sicredi")) return ALL_BANKS.find { it.key == "sicredi" }
+        if (pkg.contains("btg")) return ALL_BANKS.find { it.key == "btg" }
+        if (pkg.contains("recargapay")) return ALL_BANKS.find { it.key == "recargapay" }
 
         val byPackage = ALL_BANKS.find { bank ->
             bank.packageNames.any { p ->

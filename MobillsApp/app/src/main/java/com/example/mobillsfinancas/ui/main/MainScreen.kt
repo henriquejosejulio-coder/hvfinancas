@@ -39,8 +39,20 @@ import com.example.mobillsfinancas.ui.components.*
 import com.example.mobillsfinancas.ui.screens.BankIntegrationScreen
 import com.example.mobillsfinancas.ui.screens.CategoriesTagsScreen
 import com.example.mobillsfinancas.utils.Formatters
+import com.example.mobillsfinancas.utils.MonthHelper
 import com.example.mobillsfinancas.utils.PermissionHelper
 import kotlinx.coroutines.launch
+
+private data class OverviewCalculationResult(
+    val effectiveOtherAccountsBalance: Double,
+    val otherAccountsLabel: String,
+    val transfersToSpendingAccount: Double,
+    val spendingAccountBalance: Double?,
+    val spendingAccountName: String?,
+    val primaryAccountBalance: Double?,
+    val primaryAccountName: String?,
+    val totalAvailableInAccounts: Double
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1408,93 +1420,56 @@ fun DashboardTab(
         }
 
         item {
-            // Identifica a conta operacional principal (onde entra o salário/maior receita do mês)
-            val salaryAccountName = (currentMonthData?.items ?: emptyList())
-                .filter { it.type == TransactionType.INCOME }
-                .groupBy { it.accountOrCardName }
-                .maxByOrNull { entry -> entry.value.sumOf { it.amount } }?.key
+            val overviewCalc = remember(currentMonthData, accounts) {
+                // Identifica a conta operacional principal (onde entra o salário/maior receita do mês)
+                val salaryAccountName = (currentMonthData?.items ?: emptyList())
+                    .filter { it.type == TransactionType.INCOME }
+                    .groupBy { it.accountOrCardName }
+                    .maxByOrNull { entry -> entry.value.sumOf { it.amount } }?.key
 
-            val primaryAccount = accounts.find { it.name.trim().equals(salaryAccountName?.trim(), ignoreCase = true) }
-                ?: accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
-                ?: accounts.find { it.isDefault }
+                val primaryAccount = accounts.find { it.name.trim().equals(salaryAccountName?.trim(), ignoreCase = true) }
+                    ?: accounts.filter { it.includeInOverallBalance }.maxByOrNull { it.balance }
+                    ?: accounts.find { it.isDefault }
 
-            val otherAccounts = accounts.filter { acc ->
-                acc.includeInOverallBalance && acc.balance > 0.0 && (primaryAccount == null || acc.id != primaryAccount.id)
+                val otherAccounts = accounts.filter { acc ->
+                    acc.includeInOverallBalance && acc.balance > 0.0 && (primaryAccount == null || acc.id != primaryAccount.id)
+                }
+                val otherAccountsLabel = if (otherAccounts.size == 1) otherAccounts.first().name else if (otherAccounts.size > 1) "${otherAccounts.size} contas" else ""
+
+                val otherAccountIds = otherAccounts.map { it.id }.toSet()
+                val otherAccountNames = otherAccounts.map { it.name.trim().lowercase() }.toSet()
+                val primaryAccountId = primaryAccount?.id
+                val primaryAccountName = primaryAccount?.name?.trim()?.lowercase() ?: ""
+
+                val checkingTransfers = (currentMonthData?.items ?: emptyList()).filter { item ->
+                    item.type == TransactionType.TRANSFER &&
+                    item.status == PaymentStatus.PAID &&
+                    !item.includeInBudget
+                }
+
+                // Identifica a conta padrão de gastos/bolso do usuário (ex: Mercado Pago 2)
+                val spendingAccount = accounts.find { it.isDefault }
+                    ?: accounts.find { it.type == AccountType.WALLET && it.id != primaryAccountId }
+                    ?: otherAccounts.firstOrNull()
+
+                val spendingAccountId = spendingAccount?.id
+                val spendingAccountName = spendingAccount?.name?.trim()?.lowercase() ?: ""
+
+                val totalAvailableInAccounts = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
+
+                val isCurrentMonth = selectedMonth.trim().equals(MonthHelper.getCurrentMonthYear().trim(), ignoreCase = true)
+
+                OverviewCalculationResult(
+                    effectiveOtherAccountsBalance = totalAvailableInAccounts,
+                    otherAccountsLabel = otherAccountsLabel,
+                    transfersToSpendingAccount = 0.0,
+                    spendingAccountBalance = if (isCurrentMonth) spendingAccount?.balance else null,
+                    spendingAccountName = spendingAccount?.name,
+                    primaryAccountBalance = primaryAccount?.balance,
+                    primaryAccountName = primaryAccount?.name,
+                    totalAvailableInAccounts = totalAvailableInAccounts
+                )
             }
-            val otherAccountsLabel = if (otherAccounts.size == 1) otherAccounts.first().name else if (otherAccounts.size > 1) "${otherAccounts.size} contas" else ""
-
-            val otherAccountIds = otherAccounts.map { it.id }.toSet()
-            val otherAccountNames = otherAccounts.map { it.name.trim().lowercase() }.toSet()
-            val primaryAccountId = primaryAccount?.id
-            val primaryAccountName = primaryAccount?.name?.trim()?.lowercase() ?: ""
-
-            val checkingTransfers = (currentMonthData?.items ?: emptyList()).filter { item ->
-                item.type == TransactionType.TRANSFER &&
-                item.status == PaymentStatus.PAID &&
-                !item.includeInBudget
-            }
-
-            // Identifica a conta padrão de gastos/bolso do usuário (ex: Mercado Pago 2)
-            val spendingAccount = accounts.find { it.isDefault && it.id != primaryAccountId }
-                ?: accounts.find { it.type == AccountType.WALLET && it.id != primaryAccountId }
-                ?: otherAccounts.firstOrNull()
-
-            val spendingAccountId = spendingAccount?.id
-            val spendingAccountName = spendingAccount?.name?.trim()?.lowercase() ?: ""
-
-            // Transferências líquidas da conta principal para a conta de gastos do dia a dia
-            val transfersOutToSpending = checkingTransfers.filter { item ->
-                val (fromAcc, toAcc) = FinanceRepository.resolveTransferAccounts(item, accounts)
-                val isFromPrimary = fromAcc?.id == primaryAccountId ||
-                        (primaryAccountName.isNotBlank() && (
-                            item.accountOrCardName.trim().equals(primaryAccountName, ignoreCase = true) ||
-                            item.description.lowercase().contains(primaryAccountName)
-                        ))
-                val isToSpending = toAcc?.id == spendingAccountId ||
-                        (spendingAccountName.isNotBlank() && item.description.lowercase().contains(spendingAccountName))
-                isFromPrimary && isToSpending
-            }.sumOf { it.amount }
-
-            val transfersInFromSpending = checkingTransfers.filter { item ->
-                val (fromAcc, toAcc) = FinanceRepository.resolveTransferAccounts(item, accounts)
-                val isToPrimary = toAcc?.id == primaryAccountId ||
-                        (primaryAccountName.isNotBlank() && item.description.lowercase().contains(primaryAccountName))
-                val isFromSpending = fromAcc?.id == spendingAccountId ||
-                        (spendingAccountName.isNotBlank() && item.accountOrCardName.trim().equals(spendingAccountName, ignoreCase = true))
-                isFromSpending && isToPrimary
-            }.sumOf { it.amount }
-
-            val transfersToSpendingAccount = maxOf(0.0, transfersOutToSpending - transfersInFromSpending)
-
-            // Para qualquer outra conta secundária (ex: Sofisa Direto, Nubank), qualquer transferência recebida
-            // da conta principal NÃO computa valor livre (pois foi apenas remanejamento de saldo, e não receita).
-            // Portanto, deduz-se o saldo transferido da conta principal diretamente daquela conta.
-            val nonSpendingAccountsNetBalance = otherAccounts.filter { it.id != spendingAccountId }.sumOf { acc ->
-                val accName = acc.name.trim().lowercase()
-                val outFromPrimaryToAcc = checkingTransfers.filter { item ->
-                    val (from, to) = FinanceRepository.resolveTransferAccounts(item, accounts)
-                    val isFrom = from?.id == primaryAccountId ||
-                            (primaryAccountName.isNotBlank() && (
-                                item.accountOrCardName.trim().equals(primaryAccountName, ignoreCase = true) ||
-                                item.description.lowercase().contains(primaryAccountName)
-                            ))
-                    val isTo = to?.id == acc.id || item.description.lowercase().contains(accName)
-                    isFrom && isTo
-                }.sumOf { it.amount }
-
-                val inToPrimaryFromAcc = checkingTransfers.filter { item ->
-                    val (from, to) = FinanceRepository.resolveTransferAccounts(item, accounts)
-                    val isTo = to?.id == primaryAccountId ||
-                            (primaryAccountName.isNotBlank() && item.description.lowercase().contains(primaryAccountName))
-                    val isFrom = from?.id == acc.id || item.accountOrCardName.trim().equals(accName, ignoreCase = true)
-                    isFrom && isTo
-                }.sumOf { it.amount }
-
-                val netTransferred = maxOf(0.0, outFromPrimaryToAcc - inToPrimaryFromAcc)
-                maxOf(0.0, acc.balance - netTransferred)
-            }
-
-            val effectiveOtherAccountsBalance = (spendingAccount?.balance ?: 0.0) + nonSpendingAccountsNetBalance
 
             OverviewCard(
                 totalIncome = totalInc,
@@ -1505,9 +1480,14 @@ fun DashboardTab(
                 unspentBudgets = unspentBudgets,
                 items = currentMonthData?.items ?: emptyList(),
                 hideValues = hideValues,
-                otherAccountsBalance = effectiveOtherAccountsBalance,
-                otherAccountsLabel = otherAccountsLabel,
-                transfersToOtherAccounts = transfersToSpendingAccount,
+                otherAccountsBalance = overviewCalc.effectiveOtherAccountsBalance,
+                otherAccountsLabel = overviewCalc.otherAccountsLabel,
+                transfersToOtherAccounts = overviewCalc.transfersToSpendingAccount,
+                spendingAccountBalance = overviewCalc.spendingAccountBalance,
+                spendingAccountName = overviewCalc.spendingAccountName,
+                primaryAccountBalance = overviewCalc.primaryAccountBalance,
+                primaryAccountName = overviewCalc.primaryAccountName,
+                totalAvailableInAccounts = overviewCalc.totalAvailableInAccounts,
                 onAdjustBalance = { onAdjustBalance(0) }
             )
         }

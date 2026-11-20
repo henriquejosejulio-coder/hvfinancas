@@ -83,6 +83,30 @@ class BankNotificationService : NotificationListenerService() {
             }
         }
 
+        fun rebindService(context: Context) {
+            try {
+                val componentName = android.content.ComponentName(context, BankNotificationService::class.java)
+                val pm = context.packageManager
+                pm.setComponentEnabledSetting(
+                    componentName,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+                pm.setComponentEnabledSetting(
+                    componentName,
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    requestRebind(componentName)
+                }
+                saveDebugLog(context, "🔄 Sincronizador reconectado com sucesso (MIUI/HyperOS/Android).")
+                Log.d("BankNotificationService", "Rebind forçado com sucesso para BankNotificationService")
+            } catch (e: Exception) {
+                Log.e("BankNotificationService", "Erro ao executar rebind do serviço", e)
+            }
+        }
+
         fun simulateNotification(context: Context, packageName: String, title: String, text: String): Boolean {
             val service = BankNotificationService()
             service.repository = FinanceRepository.getInstance(context.applicationContext)
@@ -121,13 +145,7 @@ class BankNotificationService : NotificationListenerService() {
         isConnected = false
         saveDebugLog(applicationContext, "⚠️ Sincronizador DESCONECTADO pelo Android. Tentando reconectar...")
         Log.d("BankNotificationService", "⚠️ Sincronizador de Notificações DESCONECTADO pelo Android. Solicitando reconexão...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                requestRebind(android.content.ComponentName(this, BankNotificationService::class.java))
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        rebindService(applicationContext)
     }
 
     private fun createNotificationChannel() {
@@ -672,44 +690,56 @@ class BankNotificationService : NotificationListenerService() {
         return true
     }
 
-    private fun extractAmount(content: String): Double {
+    private fun parseCurrencyNumber(raw: String): Double {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return 0.0
+        val normalized = if (trimmed.contains(",")) {
+            trimmed.replace(".", "").replace(",", ".")
+        } else if (trimmed.matches(Regex("^[0-9]{1,3}\\.[0-9]{3}$"))) {
+            trimmed.replace(".", "")
+        } else {
+            trimmed
+        }
+        return normalized.toDoubleOrNull() ?: 0.0
+    }
+
+    internal fun extractAmount(content: String): Double {
+        val cleanContent = content.replace('\u00A0', ' ').replace('\u202F', ' ')
+
         // 1. Padrão R$: Suporta "R$ 11", "R$ 11,00", "R$ 11.00", "R$11", "R$ 1.250,50", "R$ 1.250"
         val rDollarPattern = Pattern.compile(
-            "R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:,[0-9]{1,2})?)",
+            "R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)",
             Pattern.CASE_INSENSITIVE
         )
-        val m1 = rDollarPattern.matcher(content)
+        val m1 = rDollarPattern.matcher(cleanContent)
         if (m1.find()) {
             val raw = m1.group(1) ?: ""
-            val normalized = raw.replace(".", "").replace(",", ".")
-            val value = normalized.toDoubleOrNull() ?: 0.0
+            val value = parseCurrencyNumber(raw)
             if (value > 0.0) return value
         }
 
         // 2. Padrão com palavras-chave precedendo o número:
         // Ex: "depositou 11", "recebeu 11 via pix", "transferiu 11,00", "valor de 11", "pagou 11"
         val wordPattern = Pattern.compile(
-            "(?:valor\\s+(?:de\\s+)?|pagou|pago|compra\\s+de|transferiu|recebeu|depositou|depósito\\s+de|deposito\\s+de)\\s*(?:R\\$\\s*)?([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:,[0-9]{1,2})?)",
+            "(?:valor\\s+(?:de\\s+)?|pagou|pago|compra\\s+de|transferiu|recebeu|depositou|depósito\\s+de|deposito\\s+de)\\s*(?:R\\$\\s*)?([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)",
             Pattern.CASE_INSENSITIVE
         )
-        val m2 = wordPattern.matcher(content)
+        val m2 = wordPattern.matcher(cleanContent)
         if (m2.find()) {
             val raw = m2.group(1) ?: ""
-            val normalized = raw.replace(".", "").replace(",", ".")
-            val value = normalized.toDoubleOrNull() ?: 0.0
+            val value = parseCurrencyNumber(raw)
             if (value > 0.0) return value
         }
 
         // 3. Padrão com 'reais': Ex: "11 reais", "50,00 reais"
         val reaisPattern = Pattern.compile(
-            "([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:,[0-9]{1,2})?)\\s+reais",
+            "([0-9]{1,3}(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)\\s+reais",
             Pattern.CASE_INSENSITIVE
         )
-        val m3 = reaisPattern.matcher(content)
+        val m3 = reaisPattern.matcher(cleanContent)
         if (m3.find()) {
             val raw = m3.group(1) ?: ""
-            val normalized = raw.replace(".", "").replace(",", ".")
-            val value = normalized.toDoubleOrNull() ?: 0.0
+            val value = parseCurrencyNumber(raw)
             if (value > 0.0) return value
         }
 
@@ -725,6 +755,11 @@ class BankNotificationService : NotificationListenerService() {
             if (acc.id == originAccount.id) continue
             val cleanName = acc.name.lowercase().trim()
             if (cleanName.length >= 3 && lowerText.contains(cleanName)) {
+                return acc
+            }
+            // Permite casar nome sem numeração final (ex: "Mercado Pago 2" casa com "mercado pago" no texto)
+            val baseName = cleanName.replace(Regex("\\s*\\d+$"), "").trim()
+            if (baseName.length >= 3 && lowerText.contains(baseName)) {
                 return acc
             }
         }
@@ -750,7 +785,11 @@ class BankNotificationService : NotificationListenerService() {
     }
 
     internal fun isValidStoreCandidate(candidate: String): Boolean {
-        val clean = candidate.trim().lowercase()
+        val clean = candidate.trim()
+            .replace(Regex("(?i)\\s+R\\$?$"), "")
+            .replace(Regex("\\$$"), "")
+            .trim()
+            .lowercase()
         if (clean.length < 3 || clean.length > 45) return false
 
         val invalidNames = setOf(
@@ -764,7 +803,12 @@ class BankNotificationService : NotificationListenerService() {
             "recarga", "plano", "oferta", "promoção", "promocao"
         )
         if (clean in invalidNames) return false
-        if (clean.startsWith("cartão") || clean.startsWith("cartao") || clean.startsWith("conta")) return false
+        if (clean.contains("cartão final") || clean.contains("cartao final") || clean == "cartão" || clean == "cartao" || clean == "card") return false
+        val genericConta = setOf("conta", "conta corrente", "conta digital", "conta poupança", "conta poupanca", "sua conta", "minha conta", "outra conta")
+        if (clean in genericConta) return false
+        if (clean.startsWith("conta ") && !BankRegistry.ALL_BANKS.any { clean.contains(it.key) || clean.contains(it.name.lowercase()) || it.keywords.any { kw -> clean.contains(kw) } }) {
+            return false
+        }
         if (clean.contains("desconto") ||
             clean.contains("plano") ||
             clean.contains("atualização") ||
@@ -779,7 +823,7 @@ class BankNotificationService : NotificationListenerService() {
         return true
     }
 
-    private fun extractStoreOrBeneficiary(text: String): String {
+    internal fun extractStoreOrBeneficiary(text: String): String {
         // 0. Depósito em conta (ex: Mercado Pago "Você depositou R$ 11 via Pix")
         if (text.contains("depositou", ignoreCase = true) ||
             text.contains("depósito", ignoreCase = true) ||
@@ -788,67 +832,97 @@ class BankNotificationService : NotificationListenerService() {
             return "Depósito via Pix"
         }
 
-        // 1. "Henrique Jose Julio te enviou um Pix" (Inter, Mercado Pago, Nubank, Caixa)
-        val enviouPixPattern = Pattern.compile("([A-Za-zÀ-ÖØ-öø-ÿ\\s]+?)\\s+te\\s+enviou\\s+um\\s+Pix", Pattern.CASE_INSENSITIVE)
+        // 1. "Henrique Jose Julio te enviou um Pix" / "Fulano te enviou R$ 50,00"
+        val enviouPixPattern = Pattern.compile("([A-Za-zÀ-ÖØ-öø-ÿ\\s]+?)\\s+te\\s+enviou\\s+(?:um\\s+Pix|R\\$)", Pattern.CASE_INSENSITIVE)
         val mEnviou = enviouPixPattern.matcher(text)
         if (mEnviou.find()) {
-            val cand = mEnviou.group(1)?.replace("Pix recebido", "", ignoreCase = true)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
-        }
-
-        // 2. "Você recebeu uma transferência de R$ 50,00 de Fulano", "Pix recebido de Fulano", "Você recebeu um Pix de Fulano"
-        val recebidoDePattern = Pattern.compile("(?:transferência de|transferência recebida:?|pix recebido de|você recebeu um pix de|você recebeu de).*?de\\s+([A-Za-zÀ-ÖØ-öø-ÿ\\s\\.]+?)(?:\\s+no\\s+valor|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
-        val mRecebido = recebidoDePattern.matcher(text)
-        if (mRecebido.find()) {
-            val cand = mRecebido.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
-        }
-
-        // 3. "Compra de R$ XX,XX aprovada em [Estabelecimento]" (Nubank / Inter)
-        val compraAprovadaPattern = Pattern.compile("(?:compra\\s+de\\s+R?\\$?[0-9.,]+\\s+aprovada\\s+em|compra\\s+aprovada\\s+(?:no\\s+seu\\s+cartão.*?\\s+)?em)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.|\\$|\\sat|$)", Pattern.CASE_INSENSITIVE)
-        val mCompra = compraAprovadaPattern.matcher(text)
-        if (mCompra.find()) {
-            val cand = mCompra.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
-        }
-
-        // 3.1 "Você acaba de comprar R$ XX,XX em [Estabelecimento]" (Banco Inter)
-        val interComprarPattern = Pattern.compile(
-            "(?:acaba\\s+de\\s+comprar|comprou)\\s+(?:R\\$\\s*)?[0-9.,]+\\s+em\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*A\\s+compra|\\.|\\$)",
-            Pattern.CASE_INSENSITIVE
-        )
-        val mInter = interComprarPattern.matcher(text)
-        if (mInter.find()) {
-            val cand = mInter.group(1)?.trim() ?: ""
+            val cand = mEnviou.group(1)?.replace("Pix recebido", "", ignoreCase = true)?.replace("Pix", "", ignoreCase = true)?.trim() ?: ""
             if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        // 4. "Você gastou R$ XX em [Estabelecimento]" (Nubank)
-        val gastouPattern = Pattern.compile("gastou\\s+R?\\$?[0-9.,]+\\s+em\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+com|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        // 2. Pix Recebido: "Você recebeu um Pix de Fulano no valor de R$ 150,00", "Pix recebido de R$ 150,00 de Fulano", "Você recebeu R$ 200,00 de Fulano via Pix"
+        val recebidoDePattern1 = Pattern.compile("(?:transferência de|transferência recebida:?|pix recebido de|você recebeu um pix de|você recebeu de|você recebeu)\\s+(?:R\\$\\s*)?[0-9.,]+\\s+de\\s+([A-Za-zÀ-ÖØ-öø-ÿ\\s\\.]+?)(?:\\s+via\\s+pix|\\s+no\\s+pix|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        val mRec1 = recebidoDePattern1.matcher(text)
+        if (mRec1.find()) {
+            val cand = mRec1.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        val recebidoDePattern2 = Pattern.compile("(?:transferência recebida:?|pix recebido de|você recebeu um pix de|você recebeu uma transferência de|você recebeu de)\\s+([A-Za-zÀ-ÖØ-öø-ÿ\\s\\.]+?)(?:\\s+no\\s+valor|\\s+via\\s+pix|\\s+R\\$|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        val mRec2 = recebidoDePattern2.matcher(text)
+        if (mRec2.find()) {
+            val cand = mRec2.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 3. Pix Enviado: "Pix enviado: você transferiu R$ 11,00 para Fulano", "Pix enviado de R$ 60,00 para Fulano", "Seu Pix de R$ 80,00 para Beltrano foi enviado", "PIX realizado com sucesso: R$ 170,00 para Conta Inter"
+        val pixEnviadoPattern = Pattern.compile("(?:pix\\s+enviado|transferência\\s+enviada|transferencia\\s+enviada|pix\\s+realizado|transferência\\s+realizada|transferencia\\s+realizada|pix\\s+conclu[ií]do|transferiu|voc[eê]\\s+transferiu|seu\\s+pix).*?\\s+para\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+com\\s+sucesso|\\s+no\\s+valor|\\s+via\\s+pix|\\s+foi\\s+enviado|\\s+R\\$|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        val mPixEnv = pixEnviadoPattern.matcher(text)
+        if (mPixEnv.find()) {
+            val cand = mPixEnv.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 4. Banco Inter: "Você acaba de comprar [no débito|no crédito]? [no|na|em]? [Estabelecimento] [o valor de R$ XX]"
+        // Ex: "Olá Henrique, você acaba de comprar no débito no MP *JOSEMIGUELDEPAULA o valor de R$ 13,00."
+        // Ex: "Você acaba de comprar no crédito no Mercado Livre o valor de R$ 76,77."
+        // Ex: "Você acaba de comprar R$ 26,90 em DL GOOGLE YouTub"
+        val interComprarPattern1 = Pattern.compile(
+            "(?:acaba|acabou)(?:\\s+de\\s+comprar|\\s+de\\s+pagar|\\s+comprou)(?:\\s+no\\s+d[eé]bito|\\s+no\\s+cr[eé]dito|\\s+no\\s+pix)?\\s+(?:no\\s+|na\\s+|em\\s+|de\\s+)?([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+o\\s+valor\\s+de|\\s+no\\s+valor\\s+de|\\s+valor\\s+de|\\s+no\\s+total\\s+de|\\s+R\\$|\\.|\\$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mInter1 = interComprarPattern1.matcher(text)
+        if (mInter1.find()) {
+            val cand = mInter1.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        val interComprarPattern2 = Pattern.compile(
+            "(?:acaba|acabou)(?:\\s+de\\s+comprar|\\s+de\\s+pagar|\\s+comprou)\\s+(?:R\\$\\s*)?[0-9.,]+\\s+(?:no\\s+|na\\s+|em\\s+|de\\s+)?([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*A\\s+compra|\\s+R\\$|\\.|\\$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mInter2 = interComprarPattern2.matcher(text)
+        if (mInter2.find()) {
+            val cand = mInter2.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 5. Compras no cartão ou pagamentos aprovados / realizados / autorizados / confirmados em [Estabelecimento]
+        val compraAprovadaPattern = Pattern.compile(
+            "(?:(?:compra|pagamento|transação|transacao|gasto)\\s+(?:de\\s+(?:R\\$\\s*)?[0-9.,]+\\s+)?(?:aprovad[oa]|realizad[oa]|confirmad[oa]|autorizad[oa]|conclu[ií]d[oa])(?:\\s+de\\s+(?:R\\$\\s*)?[0-9.,]+)?(?:\\s+com\\s+sucesso)?(?:\\s+no\\s+.*?|\\s+com\\s+.*?|\\s+pelo\\s+.*?|\\s+via\\s+.*?)?\\s+em)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+R\\$|\\.|\\$|\\sat|\\s+no\\s+cartão|\\s+no\\s+cartao|$)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val mCompra = compraAprovadaPattern.matcher(text)
+        while (mCompra.find()) {
+            val cand = mCompra.group(1)?.trim() ?: ""
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
+        }
+
+        // 6. "Você gastou R$ XX no/na/em [Estabelecimento]" (Nubank)
+        val gastouPattern = Pattern.compile("gastou\\s+R?\\$?[0-9.,]+\\s+(?:em|no|na)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+com|\\s+R\\$|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
         val mGastou = gastouPattern.matcher(text)
         if (mGastou.find()) {
             val cand = mGastou.group(1)?.trim() ?: ""
-            if (isValidStoreCandidate(cand)) return cand
+            if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        // 5. "Você pagou a Fulano", "Você pagou R$ XX em [Estabelecimento]", "Você pagou Fulano" (Mercado Pago)
-        val pagouPattern = Pattern.compile("(?:você\\s+pagou\\s+(?:a\\s+|em\\s+|para\\s+)?|você\\s+pagou\\s+|voce\\s+pagou\\s+)([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
+        // 7. "Você pagou a Fulano", "Você pagou R$ XX em [Estabelecimento]" (Mercado Pago, PicPay)
+        val pagouPattern = Pattern.compile("(?:você\\s+pagou\\s+(?:a\\s+|em\\s+|no\\s+|na\\s+|para\\s+)?|você\\s+pagou\\s+|voce\\s+pagou\\s+)([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+com\\s+saldo|\\s+R\\$|\\.|\\$|$)", Pattern.CASE_INSENSITIVE)
         val mPagou = pagouPattern.matcher(text)
         if (mPagou.find()) {
             val cand = mPagou.group(1)?.trim() ?: ""
             if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        // 6. "Você transferiu para Fulano", "Pix para Fulano", "Pix enviado para Fulano"
-        val paraPattern = Pattern.compile("(?:para|de)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+no\\s+valor|\\s+creditado|\\.|$)")
+        // 8. "para [Beneficiário]" genérico (fallback)
+        val paraPattern = Pattern.compile("(?:para|destinat[aá]rio:?)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+no\\s+valor|\\s+creditado|\\s+R\\$|\\.|$)")
         val mPara = paraPattern.matcher(text)
         if (mPara.find()) {
             val cand = mPara.group(1)?.trim() ?: ""
             if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        // 7. Padrão de e-mail / notificação do Gmail do Mercado Pago e outros bancos:
-        // "Seu Pix de R$ 6,94 foi enviado Sexta-feira, 23 de outubro de 2026, às 21:39:57. UBER DO BRASIL TECNOLOGIA LTDA. CPF/CNPJ: ..."
+        // 9. Padrão de e-mail / notificação do Gmail do Mercado Pago e outros bancos:
         val mpEmailPattern = Pattern.compile(
             "(?:às|as)\\s+\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*CPF|\\s+CPF|CPF/CNPJ|\\.|\\$)",
             Pattern.CASE_INSENSITIVE
@@ -859,7 +933,6 @@ class BankNotificationService : NotificationListenerService() {
             if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        // 8. Padrão alternativo de e-mail Pix enviado: "... foi enviado. [Estabelecimento]. CPF/CNPJ"
         val pixEmailPattern = Pattern.compile(
             "(?:foi enviado|enviado)\\.?\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\.\\s*CPF|\\s+CPF|CPF/CNPJ|\\.|\\$)",
             Pattern.CASE_INSENSITIVE
@@ -870,16 +943,16 @@ class BankNotificationService : NotificationListenerService() {
             if (isValidStoreCandidate(cand)) return cleanStoreName(cand)
         }
 
-        val storePattern = Pattern.compile("(?:em|no|na|para|de)\\s+([A-Za-z0-9\\s\\.\\*\\-]+?)(?:\\s+no\\s+seu|\\s+com|\\s+às|\\s+as|\\s+em|\\.|$)")
+        val storePattern = Pattern.compile("(?:em|no|na|para|de)\\s+([A-Za-zÀ-ÖØ-öø-ÿ0-9\\s\\.\\*\\-]+?)(?:\\s+no\\s+seu|\\s+com|\\s+às|\\s+as|\\s+em|\\.|$)")
         val matcher = storePattern.matcher(text)
-        if (matcher.find()) {
+        while (matcher.find()) {
             val candidate = matcher.group(1)?.trim() ?: ""
             if (isValidStoreCandidate(candidate)) return cleanStoreName(candidate)
         }
         return ""
     }
 
-    private fun cleanStoreName(raw: String): String {
+    internal fun cleanStoreName(raw: String): String {
         return com.example.mobillsfinancas.utils.TransactionDescriptionCleaner.cleanDescription(raw)
     }
 
@@ -1016,33 +1089,58 @@ class BankNotificationService : NotificationListenerService() {
         val isPurchaseOrPayment = lower.contains("compra aprovada") ||
                 lower.contains("compra realizada") ||
                 lower.contains("compra confirmada") ||
+                lower.contains("compra autorizada") ||
                 lower.contains("compra no cartão") ||
                 lower.contains("compra no cartao") ||
+                lower.contains("compra com cartão") ||
+                lower.contains("compra com cartao") ||
                 lower.contains("compra no débito") ||
                 lower.contains("compra no debito") ||
+                lower.contains("comprar no débito") ||
+                lower.contains("comprar no debito") ||
                 lower.contains("compra no crédito") ||
                 lower.contains("compra no credito") ||
+                lower.contains("comprar no crédito") ||
+                lower.contains("comprar no credito") ||
                 lower.contains("compra no crédito nacional") ||
                 lower.contains("compra no credito nacional") ||
                 lower.contains("compra foi no crédito") ||
                 lower.contains("compra foi no credito") ||
                 lower.contains("acaba de comprar") ||
+                lower.contains("acabou de comprar") ||
                 lower.contains("você acaba de comprar") ||
                 lower.contains("voce acaba de comprar") ||
+                lower.contains("acaba de pagar") ||
+                lower.contains("acabou de pagar") ||
+                lower.contains("você acaba de pagar") ||
+                lower.contains("voce acaba de pagar") ||
                 lower.contains("compra no valor de") ||
                 lower.contains("compra de r$") ||
                 lower.contains("você comprou") ||
                 lower.contains("voce comprou") ||
+                lower.contains("você fez uma compra") ||
+                lower.contains("voce fez uma compra") ||
+                lower.contains("você realizou uma compra") ||
+                lower.contains("voce realizou uma compra") ||
                 lower.contains("pagamento aprovado") ||
                 lower.contains("pagamento realizado") ||
                 lower.contains("pagamento confirmado") ||
+                lower.contains("pagamento autorizado") ||
                 lower.contains("pagamento de r$") ||
                 lower.contains("você pagou") ||
                 lower.contains("voce pagou") ||
                 lower.contains("transação aprovada") ||
                 lower.contains("transacao aprovada") ||
+                lower.contains("transação autorizada") ||
+                lower.contains("transacao autorizada") ||
+                lower.contains("transação realizada") ||
+                lower.contains("transacao realizada") ||
+                lower.contains("transação de r$") ||
+                lower.contains("transacao de r$") ||
                 lower.contains("autorização de compra") ||
                 lower.contains("autorizacao de compra") ||
+                lower.contains("compra com ourocard") ||
+                lower.contains("compra no ourocard") ||
                 lower.contains("usou seu cartão") ||
                 lower.contains("usou seu cartao") ||
                 lower.contains("gasto aprovado") ||

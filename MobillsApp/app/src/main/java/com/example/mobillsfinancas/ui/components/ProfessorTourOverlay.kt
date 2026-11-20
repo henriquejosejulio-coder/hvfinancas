@@ -133,7 +133,7 @@ fun ProfessorTourOverlay(
     onSkipTour: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val stepInfo = professorSteps.find { it.step == currentStep } ?: professorSteps.first()
+    val stepInfo = professorSteps.find { it.step == currentStep } ?: professorSteps.firstOrNull() ?: return
 
     AnimatedVisibility(
         visible = true,

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.mobillsfinancas.data.AccountItem
 import com.example.mobillsfinancas.data.MonthData
 import com.example.mobillsfinancas.theme.ExpenseRed
@@ -65,12 +66,15 @@ fun AdjustBalanceDialog(
     var accountBalanceTextFieldValue by remember { mutableStateOf(TextFieldValue("", TextRange(0))) }
     val accountBalanceInput = accountBalanceTextFieldValue.text
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.88f)
-                .padding(vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {

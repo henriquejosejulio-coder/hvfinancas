@@ -80,6 +80,36 @@ class FinanceRepository(private val context: Context) {
 
             return Pair(fromAcc, toAcc)
         }
+
+        /**
+         * Calcula o valor livre para gastar comigo de forma consistente e reconciliada com as contas.
+         *
+         * Regra de negócio (Método dos Envelopes / Gestão de Contas Padrão):
+         * 1. Quando o usuário possui uma conta de gastos dedicada (Conta Padrão / Carteira, ex: Mercado Pago 2):
+         *    - O dinheiro físico existente nessa conta É o valor disponível para gastar consigo.
+         *    - Se ainda houver sobra salarial na conta principal que NÃO foi transferida para a conta de gastos,
+         *      essa sobra também fica disponível para gastar ou transferir.
+         *    - Porém, se a conta principal estiver com saldo todo comprometido ou se tetos futuros (mercado/transporte)
+         *      deixarem o cálculo salarial negativo, isso NUNCA deve penalizar ou deduzir do dinheiro real que já
+         *      está na conta de gastos do usuário!
+         * 2. Quando o usuário NÃO possui conta de gastos separada (conta única):
+         *    - O valor livre é o saldo efetivo da receita abatendo todos os compromissos e tetos do mês.
+         */
+        fun calculateFreeToSpend(
+            baseIncome: Double,
+            totalExpense: Double,
+            unspentBudgets: Double,
+            extraExpensesOutOfBudget: Double = 0.0,
+            otherAccountsBalance: Double = 0.0,
+            transfersToOtherAccounts: Double = 0.0,
+            spendingAccountBalance: Double? = null
+        ): Double {
+            if (spendingAccountBalance != null) {
+                return spendingAccountBalance
+            }
+            val totalCommitted = totalExpense + unspentBudgets + extraExpensesOutOfBudget
+            return baseIncome - totalCommitted
+        }
     }
 
     private val dataFile = File(context.filesDir, "hvfinancas_v6.json")
@@ -124,7 +154,7 @@ class FinanceRepository(private val context: Context) {
             details = details
         )
         val current = _auditLogs.value
-        _auditLogs.value = (listOf(entry) + current).take(500)
+        _auditLogs.value = (listOf(entry) + current).take(3000)
     }
 
     val recentCapturedTransaction: StateFlow<TransactionItem?> get() = MutableStateFlow(_recentCapturedTransactions.value.firstOrNull())
@@ -915,21 +945,27 @@ class FinanceRepository(private val context: Context) {
             }
         }
 
-        val isToReserve = !toAcc.includeInOverallBalance
+        val isToReserve = fromAcc.includeInOverallBalance && !toAcc.includeInOverallBalance
+        val isFromReserve = !fromAcc.includeInOverallBalance && toAcc.includeInOverallBalance
+        val categoryName = if (isToReserve) "Cofrinho & Reserva" else if (isFromReserve) "Resgate Cofrinho" else "Transferência"
+        val categoryIcon = if (isToReserve) "🐖" else if (isFromReserve) "📥" else "⇄"
+        val categoryColorHex = if (isToReserve) 0xFF0284C7 else if (isFromReserve) 0xFF00A868 else 0xFF00A868
+        val isIncludedInBudget = isToReserve || isFromReserve
+
         val updatedTx = existingTransfer.copy(
             description = if (isScheduled) "Agendado: ${fromAcc.name} ➔ ${toAcc.name}" else "Transferência: ${fromAcc.name} ➔ ${toAcc.name}",
             amount = amount,
             type = TransactionType.TRANSFER,
-            category = if (isToReserve) "Cofrinho & Reserva" else "Transferência",
-            categoryIcon = if (isToReserve) "🐖" else "⇄",
-            categoryColorHex = if (isToReserve) 0xFF0284C7 else 0xFF00A868,
+            category = categoryName,
+            categoryIcon = categoryIcon,
+            categoryColorHex = categoryColorHex,
             accountOrCardName = fromAcc.name,
             paymentType = PaymentType.PIX,
             monthYear = targetMonth,
             date = txDate,
             status = if (isScheduled) PaymentStatus.PENDING else PaymentStatus.PAID,
             note = "fromAccountId:${fromAcc.id}|toAccountId:${toAcc.id}",
-            includeInBudget = isToReserve,
+            includeInBudget = isIncludedInBudget,
             isRecurring = isRecurring
         )
 
@@ -982,23 +1018,28 @@ class FinanceRepository(private val context: Context) {
             _accounts.value = currentList
         }
 
-        val isToReserve = !toAcc.includeInOverallBalance
+        val isToReserve = fromAcc.includeInOverallBalance && !toAcc.includeInOverallBalance
+        val isFromReserve = !fromAcc.includeInOverallBalance && toAcc.includeInOverallBalance
+        val categoryName = if (isToReserve) "Cofrinho & Reserva" else if (isFromReserve) "Resgate Cofrinho" else "Transferência"
+        val categoryIcon = if (isToReserve) "🐖" else if (isFromReserve) "📥" else "⇄"
+        val categoryColorHex = if (isToReserve) 0xFF0284C7 else if (isFromReserve) 0xFF00A868 else 0xFF00A868
+        val isIncludedInBudget = isToReserve || isFromReserve
         val groupId = if (isRecurring) "trf_rec_${UUID.randomUUID()}" else ""
         val txItem = TransactionItem(
             id = "trf_" + UUID.randomUUID().toString(),
             description = if (isScheduled) "Agendado: ${fromAcc.name} ➔ ${toAcc.name}" else "Transferência: ${fromAcc.name} ➔ ${toAcc.name}",
             amount = amount,
             type = TransactionType.TRANSFER,
-            category = if (isToReserve) "Cofrinho & Reserva" else "Transferência",
-            categoryIcon = if (isToReserve) "🐖" else "⇄",
-            categoryColorHex = if (isToReserve) 0xFF0284C7 else 0xFF00A868,
+            category = categoryName,
+            categoryIcon = categoryIcon,
+            categoryColorHex = categoryColorHex,
             accountOrCardName = fromAcc.name,
             paymentType = PaymentType.PIX,
             monthYear = targetMonth,
             date = txDate,
             status = if (isScheduled) PaymentStatus.PENDING else PaymentStatus.PAID,
             note = "fromAccountId:${fromAcc.id}|toAccountId:${toAcc.id}",
-            includeInBudget = isToReserve,
+            includeInBudget = isIncludedInBudget,
             isRecurring = isRecurring,
             installmentGroupId = groupId
         )
@@ -1809,13 +1850,33 @@ class FinanceRepository(private val context: Context) {
 
         val updatedItems = data.items.map { item ->
             if (ids.contains(item.id)) {
-                if (item.status != PaymentStatus.PAID && status == PaymentStatus.PAID) {
-                    val targetAcc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false) ?: getDefaultAccount()
-                    if (targetAcc != null) {
-                        if (item.type == TransactionType.EXPENSE && (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH)) {
-                            updateAccount(targetAcc.copy(balance = targetAcc.balance - item.amount))
-                        } else if (item.type == TransactionType.INCOME) {
-                            updateAccount(targetAcc.copy(balance = targetAcc.balance + item.amount))
+                val wasPaid = (item.status == PaymentStatus.PAID)
+                val isNowPaid = (status == PaymentStatus.PAID)
+                if (wasPaid != isNowPaid) {
+                    if (item.type == TransactionType.TRANSFER) {
+                        val (fromAcc, toAcc) = resolveTransferAccounts(item)
+                        if (fromAcc != null && toAcc != null) {
+                            val delta = if (isNowPaid) item.amount else -item.amount
+                            val updatedFrom = fromAcc.copy(balance = fromAcc.balance - delta)
+                            val updatedTo = toAcc.copy(balance = toAcc.balance + delta)
+                            _accounts.value = _accounts.value.map {
+                                when (it.id) {
+                                    updatedFrom.id -> updatedFrom
+                                    updatedTo.id -> updatedTo
+                                    else -> it
+                                }
+                            }
+                        }
+                    } else {
+                        val targetAcc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false) ?: getDefaultAccount()
+                        if (targetAcc != null) {
+                            if (item.type == TransactionType.EXPENSE && (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH)) {
+                                val delta = if (isNowPaid) -item.amount else item.amount
+                                updateAccount(targetAcc.copy(balance = targetAcc.balance + delta))
+                            } else if (item.type == TransactionType.INCOME) {
+                                val delta = if (isNowPaid) item.amount else -item.amount
+                                updateAccount(targetAcc.copy(balance = targetAcc.balance + delta))
+                            }
                         }
                     }
                 }
@@ -1828,6 +1889,7 @@ class FinanceRepository(private val context: Context) {
             lastModified = System.currentTimeMillis()
         )
         recalculateAllMonths()
+        logAudit("STATUS_EM_LOTE", "${ids.size} lançamento(s) atualizados para status '$status' no mês $targetMonth")
         saveToDisk()
     }
 
@@ -1836,12 +1898,44 @@ class FinanceRepository(private val context: Context) {
         val targetMonth = monthYear ?: _selectedMonth.value
         val data = _monthDataMap[targetMonth] ?: return
 
+        // Reverte o saldo das transações pagas que estão sendo excluídas
+        val itemsToDelete = data.items.filter { ids.contains(it.id) }
+        for (item in itemsToDelete) {
+            if (item.status == PaymentStatus.PAID) {
+                if (item.type == TransactionType.TRANSFER) {
+                    val (fromAcc, toAcc) = resolveTransferAccounts(item)
+                    if (fromAcc != null && toAcc != null) {
+                        val updatedFrom = fromAcc.copy(balance = fromAcc.balance + item.amount)
+                        val updatedTo = toAcc.copy(balance = toAcc.balance - item.amount)
+                        _accounts.value = _accounts.value.map {
+                            when (it.id) {
+                                updatedFrom.id -> updatedFrom
+                                updatedTo.id -> updatedTo
+                                else -> it
+                            }
+                        }
+                    }
+                } else if (item.type == TransactionType.EXPENSE && (item.paymentType == PaymentType.DEBIT_CARD || item.paymentType == PaymentType.PIX || item.paymentType == PaymentType.CASH)) {
+                    val acc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+                    if (acc != null) {
+                        updateAccount(acc.copy(balance = acc.balance + item.amount))
+                    }
+                } else if (item.type == TransactionType.INCOME) {
+                    val acc = findMatchingAccount(item.accountOrCardName, fallbackToDefault = false)
+                    if (acc != null) {
+                        updateAccount(acc.copy(balance = acc.balance - item.amount))
+                    }
+                }
+            }
+        }
+
         val updatedItems = data.items.filter { !ids.contains(it.id) }
         _monthDataMap[targetMonth] = data.copy(
             items = updatedItems,
             lastModified = System.currentTimeMillis()
         )
         recalculateAllMonths()
+        logAudit("EXCLUSAO_EM_LOTE", "${ids.size} lançamento(s) excluídos em lote no mês $targetMonth")
         saveToDisk()
     }
 
@@ -2041,6 +2135,7 @@ class FinanceRepository(private val context: Context) {
                     item
                 }
             }
+            var reserveNetTransfer = 0.0
             for (item in sanitizedItems) {
                 if (item.type == TransactionType.EXPENSE) {
                     if (item.includeInBudget && !isInvoicePayment(item)) {
@@ -2050,9 +2145,25 @@ class FinanceRepository(private val context: Context) {
                     if (!item.isSalaryReplacement) {
                         extraInc += item.amount
                     }
-                } else if (item.type == TransactionType.TRANSFER && item.includeInBudget) {
-                    totalExp += item.amount
+                } else if (item.type == TransactionType.TRANSFER) {
+                    val (fromAcc, toAcc) = resolveTransferAccounts(item)
+                    val isToReserve = (fromAcc?.includeInOverallBalance == true && toAcc?.includeInOverallBalance == false) ||
+                            (item.includeInBudget && toAcc?.includeInOverallBalance != true)
+                    val isFromReserve = (fromAcc?.includeInOverallBalance == false && toAcc?.includeInOverallBalance == true) ||
+                            (item.category.contains("Resgate", ignoreCase = true))
+
+                    if (isToReserve) {
+                        reserveNetTransfer += item.amount
+                    } else if (isFromReserve) {
+                        reserveNetTransfer -= item.amount
+                    }
                 }
+            }
+
+            if (reserveNetTransfer >= 0.0) {
+                totalExp += reserveNetTransfer
+            } else {
+                extraInc += (-reserveNetTransfer)
             }
 
             val baseInc = effectiveBaseInc
@@ -2670,6 +2781,7 @@ class FinanceRepository(private val context: Context) {
     }
 
     fun exportBackupJson(): String {
+        logAudit("EXPORTOU_BACKUP", "Backup completo exportado com ${_auditLogs.value.size} registros de auditoria", "data=${Formatters.todayDateString()}")
         saveToDisk()
         return if (dataFile.exists()) dataFile.readText() else "{}"
     }

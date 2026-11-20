@@ -50,61 +50,25 @@ fun AccountsSection(
     var showYieldDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        // Linha 1: Título da Seção e Botão Ordenar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Bancos & Contas (Controle de Saldo)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                val availableTotal = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
-                val reservesTotal = accounts.filter { !it.includeInOverallBalance }.sumOf { it.balance }
-                val effectiveAvailable = (availableTotal - pendingCofrinhoTransfers).coerceAtLeast(0.0)
-
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Disponível em Conta: ${Formatters.formatMoney(effectiveAvailable, hideValues)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MobillsGreenPrimary
-                        )
-                        if (reservesTotal > 0) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            val reservesMonthlyYield = accounts.filter { !it.includeInOverallBalance }.sumOf { it.calculateMonthlyYield() }
-                            Text(
-                                text = if (reservesMonthlyYield > 0) {
-                                    "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)} (+~${Formatters.formatMoney(reservesMonthlyYield, hideValues)}/mês)"
-                                } else {
-                                    "• 🐖 Cofrinho: ${Formatters.formatMoney(reservesTotal, hideValues)}"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF0284C7)
-                            )
-                        }
-                    }
-                    if (pendingCofrinhoTransfers > 0) {
-                        Text(
-                            text = "(${Formatters.formatMoney(availableTotal, hideValues)} em conta - ${Formatters.formatMoney(pendingCofrinhoTransfers, hideValues)} reservado p/ cofrinho)",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFE65100)
-                        )
-                    }
-                }
-            }
+            Text(
+                text = "Bancos & Contas (Controle de Saldo)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f, fill = false)
+            )
 
             if (accounts.size > 1 && onReorderAccounts != null) {
                 TextButton(
                     onClick = { showFullReorderDialog = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "⇅ Ordenar",
@@ -114,6 +78,70 @@ fun AccountsSection(
                     )
                 }
             }
+        }
+
+        // Linha 2: Resumo de Saldos (Disponível em Conta e Cofrinho/Reserva)
+        val availableTotal = accounts.filter { it.includeInOverallBalance }.sumOf { it.balance }
+        val reservesTotal = accounts.filter { !it.includeInOverallBalance }.sumOf { it.balance }
+        val effectiveAvailable = (availableTotal - pendingCofrinhoTransfers).coerceAtLeast(0.0)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Disponível: ",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = Formatters.formatMoney(effectiveAvailable, hideValues),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MobillsGreenPrimary
+                )
+            }
+
+            if (reservesTotal > 0) {
+                val reservesMonthlyYield = accounts.filter { !it.includeInOverallBalance }.sumOf { it.calculateMonthlyYield() }
+                Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "🐖 Cofrinho: ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = Formatters.formatMoney(reservesTotal, hideValues),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0284C7)
+                        )
+                    }
+                    if (reservesMonthlyYield > 0) {
+                        Text(
+                            text = "Rende ~${Formatters.formatMoney(reservesMonthlyYield, hideValues)}/mês",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF0284C7).copy(alpha = 0.85f)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (pendingCofrinhoTransfers > 0) {
+            Text(
+                text = "(${Formatters.formatMoney(availableTotal, hideValues)} em conta - ${Formatters.formatMoney(pendingCofrinhoTransfers, hideValues)} reservado p/ cofrinho)",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFE65100),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+            )
         }
 
         // Barra de Ações Rápidas de Bancos (Transferência, Rendimento e Ajuste)

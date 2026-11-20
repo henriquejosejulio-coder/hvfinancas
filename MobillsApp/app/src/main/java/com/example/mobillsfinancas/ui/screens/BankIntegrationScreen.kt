@@ -147,7 +147,38 @@ fun BankIntegrationScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (!isNotificationListenerEnabled) {
+                if (isNotificationListenerEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                BankNotificationService.rebindService(context)
+                                Toast.makeText(context, "✅ Sincronizador reconectado com sucesso!", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🔄 Reconectar Leitor", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("⚙️ Configurações", fontSize = 12.sp)
+                        }
+                    }
+                } else {
                     Button(
                         onClick = {
                             try {
@@ -454,7 +485,7 @@ fun BankIntegrationScreen(
                         text = {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    text = "Backup gerado com sucesso (${backupJson.length} caracteres). Escolha como deseja salvar ou enviar:",
+                                    text = "Backup gerado com sucesso (${backupJson.length} caracteres).\n✅ Inclui todas as contas, cartões, meses e o histórico completo de auditoria (${auditLogs.size} registros) para manter o histórico e diagnóstico de problemas.\n\nEscolha como deseja salvar ou enviar:",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

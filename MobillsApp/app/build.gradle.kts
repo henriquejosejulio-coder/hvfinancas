@@ -11,8 +11,8 @@ android {
         applicationId = "com.henriquevital.hvfinancas"
         minSdk = 24
         targetSdk = 36
-        versionCode = 85
-        versionName = "1.0.84"
+        versionCode = 96
+        versionName = "1.0.95"
     }
 
     signingConfigs {

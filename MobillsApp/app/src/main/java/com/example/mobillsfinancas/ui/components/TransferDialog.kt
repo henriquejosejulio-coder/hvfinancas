@@ -112,8 +112,10 @@ fun TransferDialog(
     }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    val fromAcc = accounts.getOrNull(fromIndex) ?: accounts.first()
-    val toAcc = accounts.getOrNull(toIndex) ?: accounts.last()
+    val fallbackFrom = AccountItem(name = "Conta Origem")
+    val fallbackTo = AccountItem(name = "Conta Destino")
+    val fromAcc = accounts.getOrNull(fromIndex) ?: accounts.firstOrNull() ?: fallbackFrom
+    val toAcc = accounts.getOrNull(toIndex) ?: accounts.lastOrNull() ?: fallbackTo
     val isToCofrinho = !toAcc.includeInOverallBalance
 
     if (showDeleteConfirmDialog && existingTransfer != null && onDeleteTransfer != null) {

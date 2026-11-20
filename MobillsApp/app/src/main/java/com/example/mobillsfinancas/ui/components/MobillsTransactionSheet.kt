@@ -82,14 +82,18 @@ fun MobillsTransactionSheet(
         )
     }
     var description by remember { mutableStateOf(existingItem?.description ?: "") }
+    val defaultCategory = remember(categories, type) {
+        categories.firstOrNull { if (type == TransactionType.EXPENSE) it.isExpense else !it.isExpense }
+            ?: categories.firstOrNull()
+            ?: CategoryItem(id = "cat_default", name = "Outros", iconEmoji = "🏷️", colorHex = 0xFF757575L, isExpense = (type == TransactionType.EXPENSE))
+    }
     var selectedCategory by remember {
         mutableStateOf(
             if (existingItem != null) {
                 categories.find { it.name.equals(existingItem.category, ignoreCase = true) }
-                    ?: categories.first()
+                    ?: defaultCategory
             } else {
-                categories.firstOrNull { if (type == TransactionType.EXPENSE) it.isExpense else !it.isExpense }
-                    ?: categories.first()
+                defaultCategory
             }
         )
     }
